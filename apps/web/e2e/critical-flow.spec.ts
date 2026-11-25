@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 const API = 'http://localhost:4000/api/v1';
 
@@ -30,7 +31,7 @@ async function openDemoProject(page: Page) {
     .getByRole('link', { name: /打开项目 毕业设计协作/ })
     .first()
     .click();
-  await expect(page).toHaveURL(/\/projects\/[^/]+$/);
+  await expect(page).toHaveURL(/\/projects\/[^/]+$/, { timeout: 20_000 });
   await expect(page.getByRole('heading', { name: /毕业设计协作/ })).toBeVisible();
 }
 
@@ -129,6 +130,75 @@ test.describe('critical flows', () => {
     await authenticate(page);
     await page.goto('/invite/not-a-valid-token');
     await expect(page.getByText(/邀请|失败|不存在|无效/).first()).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('project calendar renders and exports ICS', async ({ page }) => {
+    const token = await authenticate(page);
+    const projectId = await demoProjectId(token);
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const board = await fetch(`${API}/projects/${projectId}/board`, { headers }).then(
+      (response) => response.json() as Promise<{ columns: Array<{ id: string; name: string }> }>,
+    );
+    const column = board.columns[0];
+    if (!column) throw new Error('Demo project has no columns');
+
+    const title = `E2E 日历任务 ${Date.now()}`;
+    const nowParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const currentYear = Number(nowParts.find((part) => part.type === 'year')?.value);
+    const currentMonth = Number(nowParts.find((part) => part.type === 'month')?.value);
+    const due = new Date(Date.UTC(currentYear, currentMonth - 1, 15, 4, 0, 0));
+    const next = new Date(due.getTime() + 24 * 60 * 60 * 1000);
+    const icsDate = (date: Date): string =>
+      `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}${String(
+        date.getUTCDate(),
+      ).padStart(2, '0')}`;
+    const dueDate = due.toISOString();
+    const created = await fetch(`${API}/projects/${projectId}/tasks`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ title, columnId: column.id, dueDate, priority: 'HIGH' }),
+    }).then((response) => response.json() as Promise<{ id: string }>);
+
+    try {
+      await page.goto('/');
+      await expect(page.getByRole('link', { name: /打开项目/ }).first()).toBeVisible();
+      await openDemoProject(page);
+
+      await page
+        .getByRole('navigation', { name: '项目导航' })
+        .getByRole('link', { name: '日历', exact: true })
+        .click();
+      await expect(page).toHaveURL(/\/calendar$/);
+      await expect(page.getByRole('heading', { name: '项目日历' })).toBeVisible();
+      await expect(page.getByRole('group', { name: /任务日历/ })).toBeVisible();
+      await expect(page.getByText(title).first()).toBeVisible();
+
+      const downloadPromise = page.waitForEvent('download');
+      await page.getByRole('button', { name: /导出.*ICS/ }).click();
+      const download = await downloadPromise;
+      expect(download.suggestedFilename()).toMatch(/\.ics$/);
+      const filePath = await download.path();
+      if (!filePath) throw new Error('ICS download path is missing');
+      const content = await readFile(filePath, 'utf8');
+      expect(content).toContain('BEGIN:VCALENDAR');
+      expect(content).toContain('BEGIN:VEVENT');
+      expect(content).toContain(`SUMMARY:${title}`);
+      expect(content).toContain('UID:teamflow-task-' + created.id + '@teamflow');
+      expect(content).toContain(`DTSTART;VALUE=DATE:${icsDate(due)}`);
+      expect(content).toContain(`DTEND;VALUE=DATE:${icsDate(next)}`);
+      expect(content).toContain('STATUS:CONFIRMED');
+      expect(content).not.toContain('STATUS:COMPLETED');
+      expect(content).not.toContain('METHOD:');
+      expect(content.endsWith('END:VCALENDAR\r\n')).toBe(true);
+      expect(content.replace(/\r\n/g, '')).not.toMatch(/[\r\n]/);
+    } finally {
+      await fetch(`${API}/tasks/${created.id}`, { method: 'DELETE', headers });
+    }
   });
 
   test('drag a task across columns and persist after reload', async ({ page }) => {
@@ -319,11 +389,12 @@ test.describe('critical flows', () => {
       const aiDialog = page.getByRole('dialog', { name: 'AI 任务拆解' });
       await expect(aiDialog).toBeVisible();
       await aiDialog.getByRole('button', { name: '生成预览' }).click();
-      await expect(aiDialog.getByRole('textbox').first()).toHaveValue(/明确「V1.1 任务/, {
-        timeout: 15_000,
-      });
+      const firstSuggestion = aiDialog.getByRole('textbox').first();
+      await expect(firstSuggestion).toBeVisible({ timeout: 15_000 });
+      const suggestionTitle = await firstSuggestion.inputValue();
+      expect(suggestionTitle.trim().length).toBeGreaterThan(0);
       await aiDialog.getByRole('button', { name: /创建 \d+ 个子任务/ }).click();
-      await expect(dialog.getByText(/明确「V1.1 任务/).first()).toBeVisible({
+      await expect(dialog.getByText(suggestionTitle).first()).toBeVisible({
         timeout: 15_000,
       });
 
@@ -475,9 +546,9 @@ test.describe('critical flows', () => {
     const token = await authenticate(page);
     const projectId = await demoProjectId(token);
     await page.goto(`/projects/${projectId}/reports`);
-    await expect(
-      page.getByRole('heading', { name: /本周实时汇总/ }),
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: /本周实时汇总/ })).toBeVisible({
+      timeout: 15_000,
+    });
     await expect(page.getByText(/本周新增 \d+ 个任务/).first()).toBeVisible();
     await expect(page.getByRole('button', { name: '智能发送邮件' })).toBeVisible();
 

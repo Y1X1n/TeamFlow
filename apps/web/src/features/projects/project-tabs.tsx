@@ -1,6 +1,13 @@
 'use client';
 
-import { BarChart3, FileText, History, LayoutDashboard, Settings } from 'lucide-react';
+import {
+  BarChart3,
+  CalendarDays,
+  FileText,
+  History,
+  LayoutDashboard,
+  Settings,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useMemo } from 'react';
@@ -10,6 +17,7 @@ import { cn } from '@/lib/utils';
 const TABS = [
   { segment: '', label: '看板', icon: LayoutDashboard },
   { segment: 'overview', label: '概览', icon: BarChart3 },
+  { segment: 'calendar', label: '日历', icon: CalendarDays },
   { segment: 'timeline', label: '时间线', icon: History },
   { segment: 'reports', label: '报告', icon: FileText },
   { segment: 'settings', label: '设置', icon: Settings },

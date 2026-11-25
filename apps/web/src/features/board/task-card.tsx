@@ -6,6 +6,7 @@ import {
   ArrowRight,
   CalendarClock,
   CheckCircle2,
+  Clock3,
   Copy,
   GitBranch,
   GripVertical,
@@ -19,6 +20,7 @@ import {
 import type { CSSProperties, ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { UserAvatar } from '@/components/ui/avatar';
+import { TASK_PRIORITY_LABELS } from '@teamflow/shared/enums';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +30,8 @@ import {
 import { avatarColor, cn, formatDateTime, isOverdue } from '@/lib/utils';
 import type { TaskCard } from '@/lib/types';
 import { PriorityBadge } from '@/features/tasks/priority-badge';
+import { staleTaskDays } from '@/features/tasks/task-age';
+import { TaskLabelBadge } from '@/features/tasks/task-label';
 
 interface TaskCardViewProps {
   task: TaskCard;
@@ -47,15 +51,21 @@ export function TaskCardView({
   overlay,
 }: TaskCardViewProps) {
   const overdue = isOverdue(task.dueDate, task.completedAt);
+  const staleDays = staleTaskDays(task.updatedAt, task.completedAt);
   const labels = task.labels.slice(0, 3);
   const extraLabels = task.labels.length - labels.length;
+  const a11yParts = [task.title, `${TASK_PRIORITY_LABELS[task.priority]}优先级`];
+  a11yParts.push(task.assignee ? `负责人 ${task.assignee.name}` : '未指派');
+  if (staleDays !== null) a11yParts.push(`已 ${staleDays} 天未更新`);
+  if (task.blockedByCount > 0) a11yParts.push(`被 ${task.blockedByCount} 个任务阻塞`);
+  if (task.completedAt) a11yParts.push('已完成');
   const subtaskPercent =
     task.subtaskTotal > 0 ? Math.round((task.subtaskDone / task.subtaskTotal) * 100) : 0;
   const subtasksComplete = task.subtaskTotal > 0 && task.subtaskDone >= task.subtaskTotal;
 
   const body = (
     <>
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         <PriorityBadge priority={task.priority} />
         {task.completedAt ? (
           <span className="inline-flex items-center text-emerald-600">
@@ -73,6 +83,16 @@ export function TaskCardView({
             阻塞 {task.blockedByCount}
           </Badge>
         ) : null}
+        {staleDays !== null ? (
+          <Badge
+            variant="outline"
+            className="gap-0.5 whitespace-nowrap border-amber-200 bg-amber-50 px-1.5 py-0 text-[10px] font-normal text-amber-700"
+            title={`任务已 ${staleDays} 天未更新，建议检查进度`}
+          >
+            <Clock3 className="h-3 w-3" aria-hidden="true" />
+            {staleDays} 天未更新
+          </Badge>
+        ) : null}
       </div>
       <p
         className={cn(
@@ -85,9 +105,7 @@ export function TaskCardView({
       {labels.length > 0 ? (
         <div className="mt-1.5 flex flex-wrap gap-1">
           {labels.map((label) => (
-            <Badge key={label} variant="outline" className="px-1.5 py-0 text-[10px] font-normal">
-              {label}
-            </Badge>
+            <TaskLabelBadge key={label} label={label} />
           ))}
           {extraLabels > 0 ? (
             <span className="text-[10px] text-muted-foreground">+{extraLabels}</span>
@@ -192,7 +210,7 @@ export function TaskCardView({
             type="button"
             onClick={() => onOpen(task.id)}
             className="min-w-0 flex-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={`打开任务：${task.title}`}
+            aria-label={`打开任务：${a11yParts.join('，')}`}
           >
             {body}
           </button>
