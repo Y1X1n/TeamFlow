@@ -22,6 +22,7 @@ import {
   formatMonthLabel,
   monthAnchorFromDateKey,
   monthMatrix,
+  nextDateKey,
   parseDateKey,
   shanghaiDateKey,
   shiftMonth,
@@ -36,7 +37,9 @@ const EMPTY_COLUMNS: BoardColumn[] = [];
 function hasValidDueDate(task: TaskCard): boolean {
   if (!task.dueDate) return false;
   const dateKey = shanghaiDateKey(task.dueDate);
-  return dateKey !== '' && parseDateKey(dateKey) !== null;
+  if (dateKey === '' || parseDateKey(dateKey) === null) return false;
+  const nextKey = nextDateKey(dateKey);
+  return nextKey !== '' && parseDateKey(nextKey) !== null;
 }
 
 export function ProjectCalendarPage({ projectId }: { projectId: string }) {

@@ -160,7 +160,7 @@ export function NoDueTaskList({ projectId, tasks }: { projectId: string; tasks: 
       <CardContent>
         {tasks.length === 0 ? (
           <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-            暂无未设置截止时间的未完成任务。
+            当前没有未设置截止时间的未完成任务。
           </p>
         ) : (
           <>

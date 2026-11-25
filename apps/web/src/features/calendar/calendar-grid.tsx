@@ -132,7 +132,7 @@ function DayCell({
         ) : null}
       </div>
 
-      <div className="mt-1 min-h-0 flex-1 space-y-0.5">
+      <div className="mt-1 min-h-0 flex-1 space-y-px">
         {visibleTasks.map((task) => (
           <TaskChip key={task.id} task={task} projectId={projectId} muted={!cell.inCurrentMonth} />
         ))}
