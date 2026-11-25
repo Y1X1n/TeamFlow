@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: teamflow
+          POSTGRES_PASSWORD: teamflow
+          POSTGRES_DB: teamflow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U teamflow -d teamflow"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      DATABASE_URL: postgresql://teamflow:teamflow@localhost:5432/teamflow?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-secret-at-least-32-characters-long!!
+      CORS_ORIGINS: http://localhost:3000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build shared
+        run: pnpm --filter @teamflow/shared build
+      - name: Prisma generate
+        run: pnpm --filter @teamflow/api db:generate
+      - name: OpenAPI lint
+        run: pnpm openapi:lint
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+      - name: Migrate test database
+        run: pnpm --filter @teamflow/api db:deploy
+      - name: API e2e tests
+        run: pnpm --filter @teamflow/api test:e2e

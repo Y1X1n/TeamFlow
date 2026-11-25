@@ -1,0 +1,115 @@
+# TeamFlow
+
+面向学生团队、社团与小型工作室的实时项目协作平台：实时看板、细粒度权限、事件驱动自动化（逾期提醒 / 活动时间线 / 周报）。
+
+## 功能概览
+
+- 实时看板：多人在线拖拽、presence、断线轮询兜底；列内快速新建、卡片快捷操作、任务复制、截止时间筛选
+- 任务协作：富文本描述、子任务清单、任务依赖/阻塞校验、评论单层回复、表情回应、@ 自动补全、附件预览与拖放/粘贴上传、任务关注与活动历史
+- 效率入口：`Ctrl/Cmd+K` 全局搜索、我的任务页、项目模板（课程/社团/竞赛）、项目概览与成员工作负载
+- 账号设置：右上角账户菜单、头像裁剪上传、昵称修改、修改密码与通知偏好
+- 自动化：逾期/到期通知、本周实时汇总、周报快照与 Markdown 导出、时间线 CSV 导出、通知偏好、SSE 实时收件箱
+- AI（可选）：任务智能拆解生成子任务建议、周报邮件智能撰写；未配置模型时透明回退本地规则
+- 智能邮件（可选）：腾讯 Agent Mail 发送周报，页面内预览+确认后发送，默认关闭、不自动群发
+- 安全与治理：JWT 轮换、17 项细粒度权限、上传校验、通知去重、审计时间线
+
+## 文档
+
+- [产品需求 PRD](./docs/PRD.md)
+- [架构设计](./docs/ARCHITECTURE.md)
+- [数据模型](./docs/DATA_MODEL.md)
+- [API 契约（OpenAPI 3.1）](./docs/openapi.yaml) / [契约说明](./docs/API_CONTRACT.md)
+- [实时协议](./docs/REALTIME_PROTOCOL.md)
+- [开发约束](./docs/DEV_CONSTRAINTS.md)
+- [文档验收记录](./docs/VERIFICATION.md)
+
+## 技术栈
+
+Next.js 14 · NestJS 10 · PostgreSQL 16 · Prisma 6 · Redis 7 · BullMQ 5 · Yjs + Hocuspocus · MinIO · Docker Compose
+
+## 本地开发
+
+```bash
+cp .env.example .env
+docker compose up -d postgres redis   # 宿主端口 55432 / 6380（规避本地端口占用）
+pnpm install
+pnpm --filter @teamflow/shared build
+pnpm --filter @teamflow/api db:generate
+pnpm --filter @teamflow/api db:deploy
+pnpm --filter @teamflow/api db:seed
+pnpm dev
+```
+
+- Web: http://localhost:3000
+- API: http://localhost:4000/api/v1
+- Realtime: ws://localhost:1235
+- 附件默认使用本地磁盘驱动（`STORAGE_DRIVER=local`，目录 `./storage`），无需 MinIO 即可开发。
+- 如需 S3/MinIO：`docker compose --profile s3 up -d minio minio-init`，并设置 `STORAGE_DRIVER=s3`（MinIO 控制台 http://localhost:9001）。
+
+演示账号（seed 后）：`alice@example.com` / `Passw0rd!`、`bob@example.com` / `Passw0rd!`。
+
+### AI 配置（可选）
+
+在 `.env` 中设置 OpenAI 兼容服务即可启用任务智能拆解；未配置时使用本地规则并在 UI 明确提示：
+
+```
+AI_BASE_URL=https://your-openai-compatible/v1
+AI_API_KEY=...
+AI_MODEL=gpt-4o-mini
+AI_TIMEOUT_MS=20000
+```
+
+### Agent Mail 配置（可选）
+
+周报页的“智能发送邮件”通过腾讯 `agently-cli` 发送。默认关闭，需先在本机完成指定邮箱授权：
+
+```bash
+npm install -g @tencent-qqmail/agently-cli
+agently-cli auth login
+agently-cli +me
+```
+
+然后在 `.env` 设置并重启 API：
+
+```
+AGENT_MAIL_ENABLED=true
+# 指向全局安装的 scripts/run.js；Windows 示例：
+AGENT_MAIL_CLI_ENTRY=C:/Users/<you>/AppData/Roaming/npm/node_modules/@tencent-qqmail/agently-cli/scripts/run.js
+```
+
+- 发送前必须在页面内预览并二次确认；后端不会自动群发。
+- OAuth 凭据由 CLI 存入系统凭据库，TeamFlow 不保存邮箱密码或 Token。
+- 未配置/未授权时仍可生成邮件预览，但发送按钮禁用。
+
+## 测试
+
+```bash
+pnpm --filter @teamflow/shared test          # 共享纯函数单测
+pnpm --filter @teamflow/api test             # API 单测
+pnpm --filter @teamflow/api test:e2e         # Supertest 端到端（需 PG）
+pnpm --filter @teamflow/web test             # 前端单测
+pnpm --filter @teamflow/web exec playwright install chromium
+pnpm --filter @teamflow/web test:e2e         # Playwright（需 Web/API 运行且已 seed）
+pnpm openapi:lint                            # 契约校验
+k6 run tests/k6/board.js                     # 看板读接口压测（需 k6）
+```
+
+## 一键容器启动
+
+```bash
+cp .env.example .env
+docker compose up --build -d
+# 打开 http://localhost
+```
+
+监控（可选）：`docker compose --profile monitoring up -d`，Prometheus http://localhost:9090，Grafana http://localhost:3001（admin/admin）。
+
+## 常用脚本
+
+| 命令                           | 说明                        |
+| ------------------------------ | --------------------------- |
+| `pnpm dev`                     | 并行启动 web + api（watch） |
+| `pnpm build`                   | 全仓构建                    |
+| `pnpm lint / typecheck / test` | 质量门禁                    |
+| `pnpm openapi:lint`            | 校验契约                    |
+| `pnpm db:migrate / db:seed`    | 数据库迁移 / 种子           |

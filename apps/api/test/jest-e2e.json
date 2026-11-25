@@ -1,0 +1,20 @@
+{
+  "rootDir": "..",
+  "testEnvironment": "node",
+  "testRegex": "test/.*\\.e2e-spec\\.ts$",
+  "transform": {
+    "^.+\\.ts$": [
+      "ts-jest",
+      {
+        "tsconfig": "tsconfig.json",
+        "diagnostics": { "ignoreCodes": [151002] }
+      }
+    ]
+  },
+  "moduleFileExtensions": ["ts", "js", "json"],
+  "moduleNameMapper": {
+    "^@teamflow/shared/(.*)$": "<rootDir>/../../packages/shared/src/$1.ts"
+  },
+  "setupFiles": ["<rootDir>/test/setup-env.ts"],
+  "testTimeout": 60000
+}

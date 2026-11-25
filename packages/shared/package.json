@@ -1,0 +1,47 @@
+{
+  "name": "@teamflow/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TeamFlow shared contracts: enums, permissions, zod schemas, pure helpers",
+  "main": "./dist/permissions.js",
+  "types": "./dist/permissions.d.ts",
+  "exports": {
+    "./enums": {
+      "types": "./dist/enums.d.ts",
+      "default": "./dist/enums.js"
+    },
+    "./permissions": {
+      "types": "./dist/permissions.d.ts",
+      "default": "./dist/permissions.js"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.ts",
+      "default": "./dist/errors.js"
+    },
+    "./fractional": {
+      "types": "./dist/fractional.d.ts",
+      "default": "./dist/fractional.js"
+    },
+    "./richtext": {
+      "types": "./dist/richtext.d.ts",
+      "default": "./dist/richtext.js"
+    },
+    "./schemas": {
+      "types": "./dist/schemas.d.ts",
+      "default": "./dist/schemas.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -w -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

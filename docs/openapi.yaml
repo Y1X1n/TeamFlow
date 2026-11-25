@@ -1,0 +1,2594 @@
+openapi: 3.1.0
+info:
+  title: TeamFlow API
+  version: 1.4.0
+  description: |
+    TeamFlow 实时项目协作平台 REST API 契约（MVP v1.4）。
+
+    约定：
+    - Base URL: `/api/v1`；认证方式除特别标注外均为 `Authorization: Bearer <accessToken>`。
+    - Access Token 有效期 15 分钟；Refresh Token 通过 HttpOnly Cookie `tf_refresh` 传递（7 天，轮换）。
+    - 所有时间为 ISO 8601 UTC 字符串；ID 为 cuid 字符串。
+    - 错误响应统一为 `application/problem+json`（RFC 9457 Problem Details，含稳定的 `code` 字段）。
+    - PATCH 语义：字段缺省=不修改；可空字段显式传 `null`=清空。
+    - 列表使用不透明游标分页（`cursor` + `nextCursor`），除非另有说明。
+servers:
+  - url: /api/v1
+    description: 相对部署地址（本地经 Nginx 或直连 API :4000）
+tags:
+  - name: Auth
+    description: 注册、登录、令牌刷新
+  - name: Users
+    description: 当前用户与个人任务
+  - name: Permissions
+    description: 权限目录与我的有效权限
+  - name: Projects
+    description: 项目与看板聚合
+  - name: Members
+    description: 成员、邀请、角色与权限覆盖
+  - name: Columns
+    description: 看板列
+  - name: Tasks
+    description: 任务
+  - name: Comments
+    description: 任务评论
+  - name: Attachments
+    description: 任务附件
+  - name: Activities
+    description: 项目活动时间线
+  - name: Reports
+    description: 周报
+  - name: Notifications
+    description: 站内通知
+  - name: Search
+    description: 跨项目搜索
+  - name: AI
+    description: AI 任务拆解（可选，OpenAI 兼容服务，本地回退）
+  - name: Ops
+    description: 健康检查
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      operationId: register
+      tags: [Auth]
+      summary: 注册并登录
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: 注册成功；响应体返回 Access Token，并设置 Refresh Cookie（HttpOnly, SameSite=Lax, Path=/api/v1/auth）。
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: tf_refresh=<token>; HttpOnly; SameSite=Lax; Path=/api/v1/auth; Max-Age=604800
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '409':
+          description: 邮箱已注册
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                type: 'https://teamflow.dev/errors/email-taken'
+                title: Email already registered
+                status: 409
+                code: EMAIL_TAKEN
+                requestId: req_01
+        '429': { $ref: '#/components/responses/Problem429' }
+  /auth/login:
+    post:
+      operationId: login
+      tags: [Auth]
+      summary: 登录
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: 登录成功；设置 Refresh Cookie。
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '401':
+          description: 邮箱或密码错误
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                type: 'https://teamflow.dev/errors/invalid-credentials'
+                title: Invalid credentials
+                status: 401
+                code: INVALID_CREDENTIALS
+                requestId: req_02
+        '429': { $ref: '#/components/responses/Problem429' }
+  /auth/refresh:
+    post:
+      operationId: refreshToken
+      tags: [Auth]
+      summary: 刷新 Access Token（轮换 Refresh Token）
+      security:
+        - refreshCookie: []
+      responses:
+        '200':
+          description: 刷新成功；下发新的 Refresh Cookie（旧的立即失效）。
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [Auth]
+      summary: 退出登录
+      security:
+        - bearerAuth: []
+        - refreshCookie: []
+      responses:
+        '204':
+          description: 已吊销 Refresh Token 并清除 Cookie。
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Problem401' }
+
+  /users/me:
+    get:
+      operationId: getMe
+      tags: [Users]
+      summary: 获取当前用户
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Problem401' }
+    patch:
+      operationId: updateMe
+      tags: [Users]
+      summary: 更新个人资料
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateMeRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+
+  /users/me/password:
+    post:
+      operationId: changePassword
+      tags: [Users]
+      summary: 修改当前账号密码
+      description: 需要当前密码；成功后吊销该用户全部 Refresh Token，需重新登录。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '200':
+          description: 密码已更新
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [changed]
+                properties:
+                  changed: { type: boolean, const: true }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '422':
+          description: '`INVALID_CURRENT_PASSWORD`：当前密码不正确'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /users/me/tasks:
+    get:
+      operationId: getMyTasks
+      tags: [Users]
+      summary: 跨项目获取分配给我的任务
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string, enum: [open, overdue, done], default: open } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200':
+          description: 按截止时间升序（无截止时间在后）；已删除任务不返回。
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/MyTask' }
+        '401': { $ref: '#/components/responses/Problem401' }
+
+  /permissions/catalog:
+    get:
+      operationId: getPermissionCatalog
+      tags: [Permissions]
+      summary: 获取权限目录与角色预设
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PermissionCatalog' }
+        '401': { $ref: '#/components/responses/Problem401' }
+
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [Projects]
+      summary: 我的项目列表
+      parameters:
+        - { name: archived, in: query, required: false, schema: { type: boolean, default: false } }
+      responses:
+        '200':
+          description: 按最近更新倒序
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Problem401' }
+    post:
+      operationId: createProject
+      tags: [Projects]
+      summary: 创建项目（自动生成默认看板列）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProjectRequest' }
+      responses:
+        '201':
+          description: 创建者自动成为 OWNER；默认列：待办/进行中/已完成。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+
+  /projects/{projectId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: getProject
+      tags: [Projects]
+      summary: 获取项目详情
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+    patch:
+      operationId: updateProject
+      tags: [Projects]
+      summary: 更新或归档项目
+      description: 修改名称/描述/颜色需要 `project:update`；切换 `archived` 需要 `project:archive`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProjectRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+    delete:
+      operationId: deleteProject
+      tags: [Projects]
+      summary: 删除项目（仅 OWNER）
+      responses:
+        '204': { description: 已删除（级联删除项目数据） }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+
+  /projects/{projectId}/board:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: getBoard
+      tags: [Projects]
+      summary: 获取看板聚合数据
+      description: 返回列、未删除任务（最多 1000 个）、成员摘要与我的有效权限。实时增量由 WebSocket 提供。
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Board-Truncated:
+              schema: { type: string, enum: ['true', 'false'] }
+              description: 当未删除任务超过 1000 个时为 'true'（按列位置截断）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Board' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+
+  /projects/{projectId}/members:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: listMembers
+      tags: [Members]
+      summary: 成员列表
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Member' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+
+  /projects/{projectId}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/UserId'
+    patch:
+      operationId: updateMember
+      tags: [Members]
+      summary: 修改成员角色/权限覆盖
+      description: 需要 `member:manage`；ADMIN 不能修改 OWNER 或其他 ADMIN；OWNER 不可修改（409）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateMemberRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+    delete:
+      operationId: removeMember
+      tags: [Members]
+      summary: 移除成员
+      description: 需要 `member:manage`；不能移除 OWNER。
+      responses:
+        '204': { description: 已移除；该成员实时连接将在 5 秒内断开 }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+
+  /projects/{projectId}/invites:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: listInvites
+      tags: [Members]
+      summary: 待处理邀请列表（需要 member:invite）
+      responses:
+        '200':
+          description: 仅返回未接受、未撤销、未过期邀请
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Invite' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+    post:
+      operationId: createInvite
+      tags: [Members]
+      summary: 创建邀请链接
+      description: 需要 `member:invite`；同项目同邮箱的有效邀请会被自动替换。明文 token 仅在本次响应返回。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateInviteRequest' }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InviteCreated' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '409':
+          description: 该邮箱已是项目成员
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /projects/{projectId}/invites/{inviteId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/InviteId'
+    delete:
+      operationId: revokeInvite
+      tags: [Members]
+      summary: 撤销邀请
+      responses:
+        '204': { description: 已撤销 }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+
+  /invites/{token}:
+    parameters:
+      - $ref: '#/components/parameters/InviteToken'
+    get:
+      operationId: getInvite
+      tags: [Members]
+      summary: 查看邀请信息
+      description: 需要登录；任何已登录用户可预览邀请（用于接受页面展示）。
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitePreview' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409':
+          description: 邀请已使用，或项目已归档
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '410':
+          description: 邀请已过期/已撤销
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /invites/{token}/accept:
+    parameters:
+      - $ref: '#/components/parameters/InviteToken'
+    post:
+      operationId: acceptInvite
+      tags: [Members]
+      summary: 接受邀请
+      description: 幂等：已接受时返回 409 INVITE_USED；已加入项目时返回 409 ALREADY_MEMBER。
+      responses:
+        '200':
+          description: 已加入项目
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403':
+          description: 登录邮箱与邀请邮箱不一致（INVITE_EMAIL_MISMATCH）
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '410':
+          description: 邀请已过期或已撤销
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /projects/{projectId}/permissions/me:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: getMyPermissions
+      tags: [Permissions]
+      summary: 获取我在项目中的有效权限
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MyPermissions' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+
+  /projects/{projectId}/activities:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: listActivities
+      tags: [Activities]
+      summary: 项目活动时间线（倒序，游标分页）
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Activity' }
+                  nextCursor:
+                    type: [string, 'null']
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+
+  /projects/{projectId}/columns:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      operationId: createColumn
+      tags: [Columns]
+      summary: 新建看板列（需要 board:manage）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateColumnRequest' }
+      responses:
+        '201':
+          description: 追加到最右侧
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BoardColumn' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '409': { $ref: '#/components/responses/Problem409' }
+
+  /columns/{columnId}:
+    parameters:
+      - $ref: '#/components/parameters/ColumnId'
+    patch:
+      operationId: updateColumn
+      tags: [Columns]
+      summary: 更新列名称/完成态（需要 board:manage）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateColumnRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BoardColumn' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+    delete:
+      operationId: deleteColumn
+      tags: [Columns]
+      summary: 删除看板列（需要 board:manage）
+      description: 最后一列不可删除；列内存在任务时必须提供 `moveTasksTo`。
+      parameters:
+        - { name: moveTasksTo, in: query, required: false, schema: { type: string }, description: 目标任务列 ID }
+      responses:
+        '204': { description: 已删除 }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409':
+          description: 列非空或为最后一列
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /columns/{columnId}/move:
+    parameters:
+      - $ref: '#/components/parameters/ColumnId'
+    patch:
+      operationId: moveColumn
+      tags: [Columns]
+      summary: 调整列顺序（需要 board:manage）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MoveColumnRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BoardColumn' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
+
+  /projects/{projectId}/tasks:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      operationId: createTask
+      tags: [Tasks]
+      summary: 创建任务（需要 task:create）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTaskRequest' }
+      responses:
+        '201':
+          description: 默认追加到指定列末尾；默认优先级 MEDIUM。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskDetail' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+
+  /tasks/{taskId}:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      operationId: getTask
+      tags: [Tasks]
+      summary: 获取任务详情
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskDetail' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+    patch:
+      operationId: updateTask
+      tags: [Tasks]
+      summary: 更新任务字段（需要 task:update；修改负责人额外需要 task:assign）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateTaskRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskDetail' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+    delete:
+      operationId: deleteTask
+      tags: [Tasks]
+      summary: 删除任务（软删除，需要 task:delete）
+      responses:
+        '204': { description: 已删除 }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+
+  /tasks/{taskId}/move:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    patch:
+      operationId: moveTask
+      tags: [Tasks]
+      summary: 移动任务到指定列/位置（需要 task:move）
+      description: |
+        服务端根据 `beforeTaskId` 计算新分数索引：放到该任务之前；`null` 表示放到列尾。
+        `beforeTaskId` 必须属于目标列。服务端提交后经 WebSocket 广播给所有在线成员。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MoveTaskRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskCard' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+
+  /tasks/{taskId}/duplicate:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      operationId: duplicateTask
+      tags: [Tasks]
+      summary: 复制任务（需要 task:create）
+      description: |
+        复制标题（追加「（副本）」）、描述、优先级、标签、截止时间与子任务；子任务默认未完成。
+        复制负责人需要 task:assign，否则副本未指派。若源任务位于完成列，副本放入第一个未完成列。
+      responses:
+        '201':
+          description: 已创建副本，返回副本详情。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskDetail' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+
+  /tasks/{taskId}/dependencies:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      operationId: addTaskDependency
+      tags: [Tasks]
+      summary: 添加阻塞依赖（需要 task:update）
+      description: |
+        记录“本任务需等待 blockedByTaskId 完成”。仅支持同项目任务；禁止自依赖与循环依赖。
+        重复添加幂等，返回当前依赖摘要。存在未完成依赖时任务不能标记完成（可用 force 覆盖）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTaskDependencyRequest' }
+      responses:
+        '201':
+          description: 依赖摘要
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskDependencySummary' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+
+  /tasks/{taskId}/dependencies/{blockedByTaskId}:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+      - name: blockedByTaskId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      operationId: removeTaskDependency
+      tags: [Tasks]
+      summary: 移除阻塞依赖（需要 task:update）
+      responses:
+        '200':
+          description: 返回最新依赖摘要与 removed 标记
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TaskDependencySummary'
+                  - type: object
+                    properties:
+                      removed: { type: boolean }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+
+  /tasks/{taskId}/comments:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      operationId: listComments
+      tags: [Comments]
+      summary: 评论列表（时间正序，游标分页）
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200':
+          description: 软删除评论返回占位（deleted=true，body=null）
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/TaskComment' }
+                  nextCursor:
+                    type: [string, 'null']
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+    post:
+      operationId: createComment
+      tags: [Comments]
+      summary: 发表评论（需要 comment:create）
+      description: 从 ProseMirror JSON 提取 mentions；仅项目成员会收到 @ 通知。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCommentRequest' }
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskComment' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+
+  /comments/{commentId}:
+    parameters:
+      - $ref: '#/components/parameters/CommentId'
+    patch:
+      operationId: updateComment
+      tags: [Comments]
+      summary: 编辑评论（仅作者）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateCommentRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskComment' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+    delete:
+      operationId: deleteComment
+      tags: [Comments]
+      summary: 删除评论（作者或拥有 comment:moderate）
+      responses:
+        '204': { description: 已软删除 }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+
+  /tasks/{taskId}/attachments:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      operationId: listAttachments
+      tags: [Attachments]
+      summary: 附件列表
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Attachment' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+    post:
+      operationId: uploadAttachment
+      tags: [Attachments]
+      summary: 上传附件（需要 attachment:upload）
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: 上传成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attachment' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '413': { $ref: '#/components/responses/Problem413' }
+        '415': { $ref: '#/components/responses/Problem415' }
+        '422': { $ref: '#/components/responses/Problem422' }
+        '503': { $ref: '#/components/responses/Problem503' }
+
+  /attachments/{attachmentId}:
+    parameters:
+      - $ref: '#/components/parameters/AttachmentId'
+    delete:
+      operationId: deleteAttachment
+      tags: [Attachments]
+      summary: 删除附件（上传者或 attachment:delete）
+      responses:
+        '204': { description: 已删除 }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+
+  /attachments/{attachmentId}/download:
+    parameters:
+      - $ref: '#/components/parameters/AttachmentId'
+    get:
+      operationId: downloadAttachment
+      tags: [Attachments]
+      summary: 下载附件（302 到 5 分钟签名 URL）
+      responses:
+        '302':
+          description: 重定向到对象存储签名 URL
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+              description: 有效期 300 秒
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '503': { $ref: '#/components/responses/Problem503' }
+
+  /projects/{projectId}/reports:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: listReports
+      tags: [Reports]
+      summary: 周报列表（需要 report:view）
+      parameters:
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 24, default: 12 } }
+      responses:
+        '200':
+          description: 按周倒序
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/WeeklyReport' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+
+  /projects/{projectId}/reports/generate:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      operationId: generateReport
+      tags: [Reports]
+      summary: 手动生成周报（需要 report:generate）
+      description: 幂等：同项目同周 upsert，并写入活动；归档项目返回 409。
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GenerateReportRequest' }
+      responses:
+        '201':
+          description: 已生成
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WeeklyReport' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+
+  /projects/{projectId}/reports/current:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: getCurrentWeekSummary
+      tags: [Reports]
+      summary: 本周实时汇总（需要 report:view）
+      description: 按当前任务进度实时计算，不需要先生成或保存周报。
+      responses:
+        '200':
+          description: 当前周的任务分组、指标和自动摘要
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CurrentWeekSummary' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+
+  /projects/{projectId}/reports/current/email/status:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: getReportEmailStatus
+      tags: [Reports]
+      summary: Agent Mail 邮件服务状态（需要 report:generate）
+      responses:
+        '200':
+          description: 未配置/未授权时返回 enabled=false 或 available=false，并在 reason 中说明
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentMailStatus' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+
+  /projects/{projectId}/reports/current/email/preview:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      operationId: previewReportEmail
+      tags: [Reports]
+      summary: 生成本周周报邮件预览（需要 report:generate）
+      description: |
+        AI 已配置时由模型润色，失败或未配置时回退本地模板；只使用当前周汇总事实。
+        该端点不会发送邮件。Agent Mail 不可用时仍返回预览，并带 emailAvailable=false。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PreviewReportEmailRequest' }
+      responses:
+        '200':
+          description: 邮件预览（不发送）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportEmailPreview' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '429': { $ref: '#/components/responses/Problem429' }
+
+  /projects/{projectId}/reports/current/email/send:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      operationId: sendReportEmail
+      tags: [Reports]
+      summary: 通过 Agent Mail 发送周报邮件（需要 report:generate）
+      description: |
+        仅在用户于页面内预览并确认后调用；`confirm` 必须为 true。
+        服务端通过已授权的 agently-cli 发送，活动时间线记录邮件审计事件。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SendReportEmailRequest' }
+      responses:
+        '200':
+          description: 已发送
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportEmailSendResult' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+        '429': { $ref: '#/components/responses/Problem429' }
+        '502': { $ref: '#/components/responses/Problem502' }
+        '503': { $ref: '#/components/responses/Problem503' }
+
+  /reports/{reportId}:
+    parameters:
+      - $ref: '#/components/parameters/ReportId'
+    get:
+      operationId: getReport
+      tags: [Reports]
+      summary: 获取周报详情（需要所属项目 report:view）
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WeeklyReport' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [Notifications]
+      summary: 通知列表（倒序，游标分页）
+      parameters:
+        - { name: unreadOnly, in: query, required: false, schema: { type: boolean, default: false } }
+        - { name: type, in: query, required: false, schema: { $ref: '#/components/schemas/NotificationType' } }
+        - $ref: '#/components/parameters/Cursor'
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationList' }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /notifications/unread-count:
+    get:
+      operationId: getUnreadCount
+      tags: [Notifications]
+      summary: 未读通知数
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count]
+                properties:
+                  count: { type: integer, minimum: 0 }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /notifications/{notificationId}/read:
+    parameters:
+      - $ref: '#/components/parameters/NotificationId'
+    post:
+      operationId: markNotificationRead
+      tags: [Notifications]
+      summary: 标记单条已读（幂等）
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Notification' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /notifications/read-all:
+    post:
+      operationId: markAllNotificationsRead
+      tags: [Notifications]
+      summary: 全部标记已读
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated]
+                properties:
+                  updated: { type: integer, minimum: 0 }
+        '401': { $ref: '#/components/responses/Problem401' }
+
+  /health:
+    get:
+      operationId: health
+      tags: [Ops]
+      summary: 健康检查
+      security: []
+      responses:
+        '200':
+          description: 服务状态（依赖异常时 status=degraded，仍返回 200）
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, uptime]
+                properties:
+                  status: { type: string, enum: [ok, degraded] }
+                  uptime: { type: number }
+                  db: { type: string, enum: [up, down] }
+                  redis: { type: string, enum: [up, down] }
+                  version: { type: string }
+
+  /search:
+    get:
+      operationId: search
+      tags: [Search]
+      summary: 跨项目搜索项目、任务与成员
+      description: 仅搜索当前用户参与的项目范围；任务按标题匹配，成员按姓名/邮箱匹配。
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 50 }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 10, default: 6 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchResults' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+
+  /tasks/{taskId}/subtasks:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      operationId: listSubtasks
+      tags: [Tasks]
+      summary: 子任务列表与进度
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubtaskList' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+    post:
+      operationId: createSubtask
+      tags: [Tasks]
+      summary: 新建子任务（需要 task:update）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSubtaskRequest' }
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Subtask' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+
+  /subtasks/{subtaskId}:
+    parameters:
+      - $ref: '#/components/parameters/SubtaskId'
+    patch:
+      operationId: updateSubtask
+      tags: [Tasks]
+      summary: 更新子任务（需要 task:update）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateSubtaskRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Subtask' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+    delete:
+      operationId: deleteSubtask
+      tags: [Tasks]
+      summary: 删除子任务（需要 task:update）
+      responses:
+        '204': { description: 已删除 }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+
+  /tasks/{taskId}/watch:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      operationId: watchTask
+      tags: [Tasks]
+      summary: 关注任务（任意成员，含 VIEWER）
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WatchState' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+    delete:
+      operationId: unwatchTask
+      tags: [Tasks]
+      summary: 取消关注任务
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WatchState' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+
+  /tasks/{taskId}/activities:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      operationId: listTaskActivities
+      tags: [Activities]
+      summary: 任务活动历史（倒序，游标分页）
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Activity' }
+                  nextCursor:
+                    type: [string, 'null']
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+
+  /comments/{commentId}/reactions:
+    parameters:
+      - $ref: '#/components/parameters/CommentId'
+    put:
+      operationId: addCommentReaction
+      tags: [Comments]
+      summary: 添加表情回应（幂等）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReactionRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReactionState' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+    delete:
+      operationId: removeCommentReaction
+      tags: [Comments]
+      summary: 移除自己的表情回应
+      parameters:
+        - name: emoji
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/ReactionEmoji' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReactionState' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+
+  /notifications/preferences:
+    get:
+      operationId: getNotificationPreferences
+      tags: [Notifications]
+      summary: 获取通知偏好（未设置为默认开启）
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationPreferences' }
+        '401': { $ref: '#/components/responses/Problem401' }
+    put:
+      operationId: updateNotificationPreferences
+      tags: [Notifications]
+      summary: 更新通知偏好
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateNotificationPreferencesRequest' }
+      responses:
+        '200':
+          description: 返回更新后的完整偏好
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationPreferences' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+
+  /notifications/stream:
+    get:
+      operationId: streamNotifications
+      tags: [Notifications]
+      summary: 实时通知推送（SSE）
+      description: |
+        `text/event-stream`。浏览器必须使用 fetch 流并携带 Authorization 头（EventSource 无法设置头）。
+        事件：`event: notification`（data 为 Notification JSON）；每 15s `event: heartbeat`。
+        单实例内存推送；服务重启后客户端需重连。
+      responses:
+        '200':
+          description: SSE 流
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Problem401' }
+
+  /ai/status:
+    get:
+      operationId: getAiStatus
+      tags: [AI]
+      summary: AI 服务状态
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiStatus' }
+        '401': { $ref: '#/components/responses/Problem401' }
+
+  /tasks/{taskId}/ai-breakdown:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      operationId: generateAiBreakdown
+      tags: [AI]
+      summary: AI 生成子任务建议（需要 task:update）
+      description: |
+        使用配置的 OpenAI 兼容服务拆解任务标题与描述；未配置或调用失败时透明回退本地规则，
+        `source` 标明来源。不会自动写入数据库，由客户端确认后再创建子任务。限流 10 次/分钟。
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiBreakdown' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '429': { $ref: '#/components/responses/Problem429' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: tf_refresh
+
+  parameters:
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema: { type: string }
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: string }
+    ColumnId:
+      name: columnId
+      in: path
+      required: true
+      schema: { type: string }
+    CommentId:
+      name: commentId
+      in: path
+      required: true
+      schema: { type: string }
+    AttachmentId:
+      name: attachmentId
+      in: path
+      required: true
+      schema: { type: string }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string }
+    InviteId:
+      name: inviteId
+      in: path
+      required: true
+      schema: { type: string }
+    InviteToken:
+      name: token
+      in: path
+      required: true
+      schema: { type: string, minLength: 20, maxLength: 128 }
+    ReportId:
+      name: reportId
+      in: path
+      required: true
+      schema: { type: string }
+    NotificationId:
+      name: notificationId
+      in: path
+      required: true
+      schema: { type: string }
+    SubtaskId:
+      name: subtaskId
+      in: path
+      required: true
+      schema: { type: string }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string }
+      description: 上一页返回的不透明游标
+
+  responses:
+    Problem400:
+      description: 请求参数不合法
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Problem401:
+      description: 未认证或令牌失效
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Problem403:
+      description: 权限不足
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Problem404:
+      description: 资源不存在或无权访问
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Problem409:
+      description: 状态冲突
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Problem413:
+      description: 文件过大（>10MB）
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Problem415:
+      description: 不支持的文件类型
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Problem422:
+      description: 语义校验失败
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Problem429:
+      description: 触发限流
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Problem502:
+      description: 上游邮件服务错误
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Problem503:
+      description: 依赖服务不可用
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code:
+          type: string
+          description: 稳定错误码，见 API_CONTRACT.md §6
+        errors:
+          type: array
+          items:
+            type: object
+            required: [path, message]
+            properties:
+              path: { type: string }
+              message: { type: string }
+        requestId: { type: string }
+
+    RegisterRequest:
+      type: object
+      required: [email, password, name]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 8, maxLength: 72, description: 至少包含字母与数字 }
+        name: { type: string, minLength: 1, maxLength: 40 }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 1 }
+    UpdateMeRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        avatarUrl:
+          description: |
+            http(s) 外链，或前端裁剪压缩后的 PNG/JPEG/WebP data URL（≤100000 字符）；
+            显式 null 清空头像。
+          anyOf:
+            - type: 'null'
+            - type: string
+              format: uri
+              maxLength: 500
+              pattern: '^https?://'
+            - type: string
+              maxLength: 100000
+              pattern: '^data:image/(png|jpeg|webp);base64,'
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string, minLength: 1, maxLength: 72 }
+        newPassword:
+          type: string
+          minLength: 8
+          maxLength: 72
+          pattern: "^(?=.*[A-Za-z])(?=.*\\d).+$"
+          description: 至少 8 位，包含字母和数字，且不能与当前密码相同
+    AuthSession:
+      type: object
+      required: [user, accessToken, expiresIn, tokenType]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        accessToken: { type: string }
+        expiresIn: { type: integer, example: 900 }
+        tokenType: { type: string, const: Bearer }
+    TokenPair:
+      type: object
+      required: [accessToken, expiresIn, tokenType]
+      properties:
+        accessToken: { type: string }
+        expiresIn: { type: integer }
+        tokenType: { type: string, const: Bearer }
+    User:
+      type: object
+      required: [id, email, name, createdAt]
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        name: { type: string }
+        avatarUrl:
+          type: [string, 'null']
+          description: http(s) 头像 URL，或 PNG/JPEG/WebP data URL
+        createdAt: { type: string, format: date-time }
+
+    ProjectRole:
+      type: string
+      enum: [OWNER, ADMIN, MEMBER, VIEWER]
+    Project:
+      type: object
+      required:
+        [id, name, color, ownerId, myRole, archived, memberCount, taskCount,
+         completedTaskCount, myOpenTaskCount, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        ownerId: { type: string }
+        myRole: { $ref: '#/components/schemas/ProjectRole' }
+        archived: { type: boolean }
+        memberCount: { type: integer }
+        taskCount: { type: integer, description: 未删除任务总数 }
+        completedTaskCount: { type: integer }
+        myOpenTaskCount: { type: integer, description: 分配给我且未完成的任务数 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CreateProjectRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: string, maxLength: 500 }
+        color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', default: '#6366F1' }
+        template:
+          type: string
+          enum: [BLANK, COURSE, CLUB, COMPETITION]
+          default: BLANK
+          description: 项目模板；后端按模板创建看板列与初始任务
+    UpdateProjectRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: [string, 'null'], maxLength: 500 }
+        color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        archived: { type: boolean }
+
+    MemberSummary:
+      type: object
+      required: [userId, name, role]
+      properties:
+        userId: { type: string }
+        name: { type: string }
+        avatarUrl: { type: [string, 'null'] }
+        role: { $ref: '#/components/schemas/ProjectRole' }
+    Member:
+      allOf:
+        - $ref: '#/components/schemas/MemberSummary'
+        - type: object
+          required: [id, email, permissionOverrides, joinedAt]
+          properties:
+            id: { type: string, description: 成员关系 ID }
+            email: { type: string, format: email }
+            permissionOverrides:
+              type: [object, 'null']
+              additionalProperties: { type: boolean }
+            joinedAt: { type: string, format: date-time }
+    UpdateMemberRequest:
+      type: object
+      minProperties: 1
+      properties:
+        role:
+          type: string
+          enum: [ADMIN, MEMBER, VIEWER]
+          description: 仅 OWNER 可授予 ADMIN
+        permissionOverrides:
+          type: [object, 'null']
+          description: 权限键 → 布尔；null 表示清除全部覆盖
+          additionalProperties: { type: boolean }
+
+    Invite:
+      type: object
+      required: [id, email, role, status, expiresAt, createdAt]
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        role:
+          type: string
+          enum: [ADMIN, MEMBER, VIEWER]
+        status:
+          type: string
+          enum: [PENDING, ACCEPTED, REVOKED, EXPIRED]
+        expiresAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+    InviteCreated:
+      type: object
+      required: [invite, inviteUrl]
+      properties:
+        invite: { $ref: '#/components/schemas/Invite' }
+        inviteUrl:
+          type: string
+          format: uri
+          description: 完整邀请链接，前端提供复制按钮；服务端仅存 token 哈希
+    CreateInviteRequest:
+      type: object
+      required: [email, role]
+      properties:
+        email: { type: string, format: email }
+        role: { type: string, enum: [ADMIN, MEMBER, VIEWER] }
+    InvitePreview:
+      type: object
+      required: [projectId, projectName, projectColor, role, inviterName, email, expiresAt]
+      properties:
+        projectId: { type: string }
+        projectName: { type: string }
+        projectColor: { type: string }
+        role: { type: string, enum: [ADMIN, MEMBER, VIEWER] }
+        inviterName: { type: string }
+        email: { type: string, format: email }
+        expiresAt: { type: string, format: date-time }
+
+    BoardColumn:
+      type: object
+      required: [id, projectId, name, position, isDone]
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        name: { type: string }
+        position: { type: string, description: 分数索引，字典序排序 }
+        isDone: { type: boolean }
+        taskCount: { type: integer }
+    CreateColumnRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 30 }
+        isDone: { type: boolean, default: false }
+    UpdateColumnRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 30 }
+        isDone: { type: boolean }
+    MoveColumnRequest:
+      type: object
+      properties:
+        beforeColumnId:
+          type: [string, 'null']
+          description: 移动到该列之前；null 表示最右侧
+
+    TaskPriority:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, URGENT]
+    TaskCard:
+      type: object
+      required:
+        [id, projectId, columnId, title, priority, labels, position, commentCount,
+         attachmentCount, subtaskTotal, subtaskDone, blockedByCount, blockingCount,
+         createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        columnId: { type: string }
+        title: { type: string }
+        priority: { $ref: '#/components/schemas/TaskPriority' }
+        assignee:
+          anyOf:
+            - $ref: '#/components/schemas/MemberSummary'
+            - { type: 'null' }
+        dueDate: { type: [string, 'null'], format: date-time }
+        labels:
+          type: array
+          maxItems: 5
+          items: { type: string, minLength: 1, maxLength: 20 }
+        position: { type: string }
+        completedAt: { type: [string, 'null'], format: date-time }
+        commentCount: { type: integer }
+        attachmentCount: { type: integer }
+        subtaskTotal: { type: integer }
+        subtaskDone: { type: integer }
+        blockedByCount:
+          type: integer
+          description: 未完成阻塞依赖数量；>0 时不能直接标记完成
+        blockingCount:
+          type: integer
+          description: 当前被本任务阻塞且未完成的下游任务数量
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    TaskDetail:
+      allOf:
+        - $ref: '#/components/schemas/TaskCard'
+        - type: object
+          required:
+            [description, createdBy, subtasks, watching, watcherCount, blockedBy, blocking]
+          properties:
+            description:
+              type: [object, 'null']
+              description: ProseMirror JSON 文档
+              additionalProperties: true
+            createdBy:
+              type: object
+              required: [userId, name]
+              properties:
+                userId: { type: string }
+                name: { type: string }
+            subtasks:
+              type: array
+              items: { $ref: '#/components/schemas/Subtask' }
+            watching: { type: boolean }
+            watcherCount: { type: integer }
+            blockedBy:
+              type: array
+              items: { $ref: '#/components/schemas/TaskDependencyRef' }
+            blocking:
+              type: array
+              items: { $ref: '#/components/schemas/TaskDependencyRef' }
+    TaskDependencyRef:
+      type: object
+      required: [taskId, title, columnId, columnName, completed]
+      properties:
+        taskId: { type: string }
+        title: { type: string }
+        columnId: { type: string }
+        columnName: { type: string }
+        completed: { type: boolean }
+    TaskDependencySummary:
+      type: object
+      required: [blockedBy, blocking]
+      properties:
+        blockedBy:
+          type: array
+          items: { $ref: '#/components/schemas/TaskDependencyRef' }
+        blocking:
+          type: array
+          items: { $ref: '#/components/schemas/TaskDependencyRef' }
+    MyTask:
+      allOf:
+        - $ref: '#/components/schemas/TaskCard'
+        - type: object
+          required: [project]
+          properties:
+            project:
+              type: object
+              required: [id, name, color]
+              properties:
+                id: { type: string }
+                name: { type: string }
+                color: { type: string }
+    CreateTaskRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description:
+          type: object
+          description: ProseMirror JSON（≤100KB）
+          additionalProperties: true
+        priority: { $ref: '#/components/schemas/TaskPriority' }
+        assigneeId: { type: [string, 'null'] }
+        dueDate: { type: [string, 'null'], format: date-time }
+        labels:
+          type: array
+          maxItems: 5
+          items: { type: string, minLength: 1, maxLength: 20 }
+        columnId: { type: string, description: 缺省为第一列 }
+    UpdateTaskRequest:
+      type: object
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description:
+          type: [object, 'null']
+          additionalProperties: true
+        priority: { $ref: '#/components/schemas/TaskPriority' }
+        assigneeId: { type: [string, 'null'] }
+        dueDate: { type: [string, 'null'], format: date-time }
+        labels:
+          type: array
+          maxItems: 5
+          items: { type: string, minLength: 1, maxLength: 20 }
+    MoveTaskRequest:
+      type: object
+      required: [columnId]
+      properties:
+        columnId: { type: string }
+        beforeTaskId:
+          type: [string, 'null']
+          description: 目标列中的参考任务；null=列尾
+        force:
+          type: boolean
+          description: 仅用于移入完成列时忽略未完成依赖；缺省 false 并返回 409 TASK_BLOCKED
+    CreateTaskDependencyRequest:
+      type: object
+      required: [blockedByTaskId]
+      properties:
+        blockedByTaskId: { type: string, description: 必须先完成的同项目任务 ID }
+
+    Board:
+      type: object
+      required: [project, columns, tasks, members, myPermissions]
+      properties:
+        project: { $ref: '#/components/schemas/Project' }
+        columns:
+          type: array
+          items: { $ref: '#/components/schemas/BoardColumn' }
+        tasks:
+          type: array
+          maxItems: 1000
+          items: { $ref: '#/components/schemas/TaskCard' }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/MemberSummary' }
+        myPermissions:
+          type: array
+          items: { type: string }
+          description: 17 项权限键的子集
+
+    TaskComment:
+      type: object
+      required:
+        [id, taskId, author, parentId, replyTo, mentions, reactions, replyCount,
+         deleted, edited, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        taskId: { type: string }
+        author:
+          type: object
+          required: [userId, name]
+          properties:
+            userId: { type: string }
+            name: { type: string }
+            avatarUrl: { type: [string, 'null'] }
+        parentId: { type: [string, 'null'] }
+        replyTo:
+          anyOf:
+            - type: object
+              required: [commentId, userId, name]
+              properties:
+                commentId: { type: string }
+                userId: { type: string }
+                name: { type: string }
+            - { type: 'null' }
+        body:
+          type: [object, 'null']
+          additionalProperties: true
+          description: 已删除评论为 null
+        bodyText: { type: [string, 'null'] }
+        mentions:
+          type: array
+          items: { type: string }
+        reactions:
+          type: array
+          items: { $ref: '#/components/schemas/ReactionSummary' }
+        replyCount: { type: integer }
+        deleted: { type: boolean }
+        edited: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CreateCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: object
+          description: ProseMirror JSON；纯文本 ≤5000 字符
+          additionalProperties: true
+        parentId:
+          type: [string, 'null']
+          description: 回复根评论的 ID（单层回复）
+    UpdateCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: object
+          additionalProperties: true
+
+    Attachment:
+      type: object
+      required: [id, taskId, fileName, mimeType, sizeBytes, uploadedBy, createdAt]
+      properties:
+        id: { type: string }
+        taskId: { type: string }
+        fileName: { type: string }
+        mimeType: { type: string }
+        sizeBytes: { type: integer }
+        uploadedBy:
+          type: object
+          required: [userId, name]
+          properties:
+            userId: { type: string }
+            name: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    Activity:
+      type: object
+      required: [id, type, payload, createdAt]
+      properties:
+        id: { type: string }
+        type:
+          type: string
+          enum:
+            - PROJECT_CREATED
+            - PROJECT_UPDATED
+            - PROJECT_ARCHIVED
+            - PROJECT_UNARCHIVED
+            - MEMBER_JOINED
+            - MEMBER_REMOVED
+            - MEMBER_ROLE_CHANGED
+            - MEMBER_PERMISSIONS_CHANGED
+            - COLUMN_CREATED
+            - COLUMN_UPDATED
+            - COLUMN_DELETED
+            - TASK_CREATED
+            - TASK_UPDATED
+            - TASK_MOVED
+            - TASK_COMPLETED
+            - TASK_REOPENED
+            - TASK_ASSIGNED
+            - TASK_DELETED
+            - COMMENT_CREATED
+            - COMMENT_UPDATED
+            - COMMENT_DELETED
+            - ATTACHMENT_ADDED
+            - ATTACHMENT_DELETED
+            - REPORT_GENERATED
+        actor:
+          anyOf:
+            - type: object
+              required: [userId, name]
+              properties:
+                userId: { type: string }
+                name: { type: string }
+                avatarUrl: { type: [string, 'null'] }
+            - { type: 'null' }
+        taskId: { type: [string, 'null'] }
+        payload:
+          type: object
+          additionalProperties: true
+        createdAt: { type: string, format: date-time }
+
+    PermissionCatalog:
+      type: object
+      required: [actions, rolePresets]
+      properties:
+        actions:
+          type: array
+          items:
+            type: object
+            required: [key, label, group]
+            properties:
+              key: { type: string }
+              label: { type: string }
+              description: { type: string }
+              group: { type: string }
+        rolePresets:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+    MyPermissions:
+      type: object
+      required: [projectId, role, permissions, overrides, archived]
+      properties:
+        projectId: { type: string }
+        role: { $ref: '#/components/schemas/ProjectRole' }
+        permissions:
+          type: array
+          items: { type: string }
+        overrides:
+          type: [object, 'null']
+          additionalProperties: { type: boolean }
+        archived: { type: boolean }
+
+    WeeklyReport:
+      type: object
+      required: [id, projectId, weekStart, weekEnd, data, createdAt]
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        weekStart: { type: string, format: date }
+        weekEnd: { type: string, format: date }
+        data:
+          type: object
+          additionalProperties: true
+          description: 结构见 DATA_MODEL.md §5；v1.3 起含 summary 与四类任务列表
+        createdById: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    WeekTaskRef:
+      type: object
+      required:
+        [taskId, title, columnName, assigneeName, priority, dueDate, completedAt,
+         blockedByCount, blockedByTitles]
+      properties:
+        taskId: { type: string }
+        title: { type: string }
+        columnName: { type: string }
+        assigneeName: { type: [string, 'null'] }
+        priority: { $ref: '#/components/schemas/TaskPriority' }
+        dueDate: { type: [string, 'null'], format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        blockedByCount: { type: integer }
+        blockedByTitles:
+          type: array
+          items: { type: string }
+        reason:
+          type: string
+          description: 风险原因，如「逾期」「依赖阻塞」
+    WeekMetrics:
+      type: object
+      required:
+        [createdTasks, completedTasks, activeTasks, overdueTasks, blockedTasks,
+         comments, activeMembers, totalTasks]
+      properties:
+        createdTasks: { type: integer }
+        completedTasks: { type: integer }
+        activeTasks: { type: integer }
+        overdueTasks: { type: integer }
+        blockedTasks: { type: integer }
+        comments: { type: integer }
+        activeMembers: { type: integer }
+        totalTasks: { type: integer }
+    CurrentWeekSummary:
+      type: object
+      required:
+        [project, weekStart, weekEnd, generatedAt, metrics, summary,
+         completedTaskList, openTaskList, riskTaskList, upcomingTaskList]
+      properties:
+        project:
+          type: object
+          required: [id, name, color, archived]
+          properties:
+            id: { type: string }
+            name: { type: string }
+            color: { type: string }
+            archived: { type: boolean }
+        weekStart: { type: string, format: date }
+        weekEnd: { type: string, format: date }
+        generatedAt: { type: string, format: date-time }
+        metrics: { $ref: '#/components/schemas/WeekMetrics' }
+        summary:
+          type: string
+          description: 基于当前进度自动生成的确定性文字摘要
+        activeMemberDetails:
+          type: array
+          items:
+            type: object
+            required: [userId, name, actions]
+            properties:
+              userId: { type: string }
+              name: { type: string }
+              actions: { type: integer }
+        completionByMember:
+          type: array
+          items:
+            type: object
+            required: [userId, name, completed]
+            properties:
+              userId: { type: string }
+              name: { type: string }
+              completed: { type: integer }
+        highlightTasks:
+          type: array
+          items:
+            type: object
+            required: [taskId, title, completedAt]
+            properties:
+              taskId: { type: string }
+              title: { type: string }
+              completedAt: { type: [string, 'null'], format: date-time }
+        completedTaskList:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/WeekTaskRef' }
+        openTaskList:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/WeekTaskRef' }
+        riskTaskList:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/WeekTaskRef' }
+        upcomingTaskList:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/WeekTaskRef' }
+    AgentMailStatus:
+      type: object
+      required: [enabled, available, provider, sender]
+      properties:
+        enabled: { type: boolean }
+        available: { type: boolean }
+        provider: { type: string, enum: [tencent-agent-mail] }
+        sender: { type: [string, 'null'], format: email }
+        reason: { type: string }
+    PreviewReportEmailRequest:
+      type: object
+      required: [recipients]
+      properties:
+        recipients:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          items: { type: string, format: email }
+        tone: { type: string, enum: [concise, detailed] }
+        note: { type: string, maxLength: 500 }
+    ReportEmailPreview:
+      type: object
+      required:
+        [weekStart, weekEnd, recipients, subject, body, source, model, notice,
+         sender, emailAvailable, emailReason]
+      properties:
+        weekStart: { type: string, format: date }
+        weekEnd: { type: string, format: date }
+        recipients:
+          type: array
+          items: { type: string, format: email }
+        subject: { type: string }
+        body: { type: string }
+        source: { type: string, enum: [ai, local] }
+        model: { type: [string, 'null'] }
+        notice: { type: [string, 'null'] }
+        sender: { type: [string, 'null'], format: email }
+        emailAvailable: { type: boolean }
+        emailReason: { type: [string, 'null'] }
+    SendReportEmailRequest:
+      type: object
+      required: [recipients, subject, body, confirm]
+      properties:
+        recipients:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          items: { type: string, format: email }
+        subject: { type: string, minLength: 1, maxLength: 120, pattern: "^[^\\r\\n]+$" }
+        body: { type: string, minLength: 1, maxLength: 12000 }
+        confirm:
+          type: boolean
+          const: true
+          description: 必须为 true，表示用户已在页面内预览并确认发送
+    ReportEmailSendResult:
+      type: object
+      required: [sent, messageId, sender, recipients, sentAt]
+      properties:
+        sent: { type: boolean, const: true }
+        messageId: { type: [string, 'null'] }
+        sender: { type: string, format: email }
+        recipients:
+          type: array
+          items: { type: string, format: email }
+        sentAt: { type: string, format: date-time }
+    GenerateReportRequest:
+      type: object
+      properties:
+        weekStart:
+          type: string
+          format: date
+          description: 必须为周一；缺省=上一周
+
+    NotificationType:
+      type: string
+      enum:
+        - TASK_ASSIGNED
+        - TASK_COMMENTED
+        - TASK_UPDATED
+        - COMMENT_REPLY
+        - COMMENT_REACTION
+        - MENTION
+        - TASK_DUE_SOON
+        - TASK_OVERDUE
+        - MEMBER_JOINED
+        - MEMBER_REMOVED
+        - ROLE_CHANGED
+        - WEEKLY_REPORT
+        - INVITE
+    Notification:
+      type: object
+      required: [id, type, payload, read, createdAt]
+      properties:
+        id: { type: string }
+        type: { $ref: '#/components/schemas/NotificationType' }
+        payload:
+          type: object
+          additionalProperties: true
+        read: { type: boolean }
+        readAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    NotificationList:
+      type: object
+      required: [items, unreadCount, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Notification' }
+        unreadCount: { type: integer, minimum: 0 }
+        nextCursor: { type: [string, 'null'] }
+
+    Subtask:
+      type: object
+      required: [id, taskId, title, isDone, position, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        taskId: { type: string }
+        title: { type: string, maxLength: 120 }
+        isDone: { type: boolean }
+        position: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    SubtaskList:
+      type: object
+      required: [items, progress]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Subtask' }
+        progress:
+          type: object
+          required: [total, done]
+          properties:
+            total: { type: integer }
+            done: { type: integer }
+    CreateSubtaskRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+    UpdateSubtaskRequest:
+      type: object
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        isDone: { type: boolean }
+    WatchState:
+      type: object
+      required: [watching, watcherCount]
+      properties:
+        watching: { type: boolean }
+        watcherCount: { type: integer, minimum: 0 }
+    ReactionEmoji:
+      type: string
+      enum: ['👍', '❤️', '😄', '🎉', '👀']
+    ReactionRequest:
+      type: object
+      required: [emoji]
+      properties:
+        emoji: { $ref: '#/components/schemas/ReactionEmoji' }
+    ReactionSummary:
+      type: object
+      required: [emoji, count, reactedByMe, userNames]
+      properties:
+        emoji: { type: string }
+        count: { type: integer }
+        reactedByMe: { type: boolean }
+        userNames:
+          type: array
+          items: { type: string }
+    ReactionState:
+      type: object
+      required: [reactions]
+      properties:
+        reactions:
+          type: array
+          items: { $ref: '#/components/schemas/ReactionSummary' }
+    NotificationPreferences:
+      type: object
+      required: [preferences]
+      properties:
+        preferences:
+          type: object
+          additionalProperties: { type: boolean }
+          description: 13 种通知类型的开关
+    UpdateNotificationPreferencesRequest:
+      type: object
+      required: [preferences]
+      properties:
+        preferences:
+          type: object
+          additionalProperties: { type: boolean }
+    SearchResults:
+      type: object
+      required: [projects, tasks, members]
+      properties:
+        projects:
+          type: array
+          items:
+            type: object
+            required: [id, name, color, archived]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              description: { type: [string, 'null'] }
+              color: { type: string }
+              archived: { type: boolean }
+        tasks:
+          type: array
+          items:
+            type: object
+            required:
+              [id, title, projectId, projectName, projectColor, columnId,
+               columnName, priority]
+            properties:
+              id: { type: string }
+              title: { type: string }
+              projectId: { type: string }
+              projectName: { type: string }
+              projectColor: { type: string }
+              columnId: { type: string }
+              columnName: { type: string }
+              priority: { $ref: '#/components/schemas/TaskPriority' }
+              dueDate: { type: [string, 'null'], format: date-time }
+              completedAt: { type: [string, 'null'], format: date-time }
+        members:
+          type: array
+          items:
+            type: object
+            required: [userId, name, email, projects]
+            properties:
+              userId: { type: string }
+              name: { type: string }
+              email: { type: string, format: email }
+              avatarUrl: { type: [string, 'null'] }
+              projects:
+                type: array
+                items:
+                  type: object
+                  required: [id, name]
+                  properties:
+                    id: { type: string }
+                    name: { type: string }
+    AiStatus:
+      type: object
+      required: [enabled, provider, model, fallback]
+      properties:
+        enabled: { type: boolean }
+        provider: { type: string }
+        model: { type: [string, 'null'] }
+        fallback: { type: string, const: local }
+        costNotice: { type: [string, 'null'] }
+    AiBreakdown:
+      type: object
+      required: [subtasks, source]
+      properties:
+        subtasks:
+          type: array
+          maxItems: 6
+          items: { type: string }
+        source: { type: string, enum: [ai, local] }
+        model: { type: string }
+        notice: { type: string }

@@ -1,0 +1,72 @@
+{
+  "title": "TeamFlow Overview",
+  "uid": "teamflow-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "HTTP requests / sec",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_request_duration_seconds_count[5m]))",
+          "legendFormat": "requests"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "HTTP P95 latency",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "WebSocket connections",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [{ "refId": "A", "expr": "ws_connections", "legendFormat": "connections" }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Loaded Yjs documents",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [{ "refId": "A", "expr": "ws_documents", "legendFormat": "documents" }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Process RSS memory",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 8 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_resident_memory_bytes",
+          "legendFormat": "rss"
+        }
+      ]
+    }
+  ]
+}

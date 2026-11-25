@@ -1,0 +1,8 @@
+/** @type {import('next').NextConfig} */
+module.exports = {
+  extends: ['next/core-web-vitals', 'prettier'],
+  rules: {
+    '@next/next/no-img-element': 'error',
+    'no-console': 'warn',
+  },
+};
