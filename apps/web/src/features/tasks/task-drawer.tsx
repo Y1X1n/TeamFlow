@@ -1,7 +1,16 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Copy, History, Loader2, Pencil, Sparkles, Trash2 } from 'lucide-react';
+import {
+  ChevronDown,
+  Clock3,
+  Copy,
+  History,
+  Loader2,
+  Pencil,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { toast } from 'sonner';
@@ -36,10 +45,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { RichTextEditor } from '@/components/rich-text-editor';
 import { RichTextView } from '@/components/rich-text-view';
 import { TaskActivity } from './task-activity';
+import { staleTaskDays } from './task-age';
 import { TaskAssignSuggestions } from './task-assign-suggestions';
 import { TaskAttachments } from './task-attachments';
 import { TaskComments } from './task-comments';
 import { TaskDependencies } from './task-dependencies';
+import { TaskLabelBadge } from './task-label';
 import { TaskSubtasks } from './task-subtasks';
 import { TaskWatch } from './task-watch';
 import {
@@ -262,6 +273,7 @@ export function TaskDrawer({
 
   const dueChanged = task ? toDateTimeLocalValue(task.dueDate) !== dueDraft : false;
   const overdue = task ? isOverdue(task.dueDate, task.completedAt) : false;
+  const staleDays = task ? staleTaskDays(task.updatedAt, task.completedAt) : null;
 
   return (
     <Sheet
@@ -397,6 +409,14 @@ export function TaskDrawer({
                     ) : null}
                   </div>
                 )}
+                {staleDays !== null ? (
+                  <p
+                    className="mt-1 flex items-center gap-1 text-[11px] text-amber-700"
+                    title={`任务已 ${staleDays} 天未更新，建议检查进度`}
+                  >
+                    <Clock3 className="h-3 w-3" aria-hidden="true" />已 {staleDays} 天未更新
+                  </p>
+                ) : null}
               </div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -538,9 +558,11 @@ export function TaskDrawer({
                   ) : task.labels.length > 0 ? (
                     <div className="flex flex-wrap gap-1">
                       {task.labels.map((label) => (
-                        <Badge key={label} variant="outline" className="font-normal">
-                          {label}
-                        </Badge>
+                        <TaskLabelBadge
+                          key={label}
+                          label={label}
+                          className="px-2 py-0.5 text-[11px]"
+                        />
                       ))}
                     </div>
                   ) : (
