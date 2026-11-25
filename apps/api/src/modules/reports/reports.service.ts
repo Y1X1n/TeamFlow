@@ -1,20 +1,28 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { resolvePermissions } from '@teamflow/shared/permissions';
-import type { TaskPriority } from '@teamflow/shared/enums';
+import type { ProjectRole, TaskPriority } from '@teamflow/shared/enums';
 import type { Prisma } from '@prisma/client';
-import type { PreviewReportEmailInput, SendReportEmailInput } from '@teamflow/shared/schemas';
+import type {
+  PeriodReportNarrativeInput,
+  PeriodReportQuery,
+  PreviewReportEmailInput,
+  SendReportEmailInput,
+} from '@teamflow/shared/schemas';
 import { DomainError } from '../../common/domain-error';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActivitiesService } from '../activities/activities.service';
 import { AiService } from '../ai/ai.service';
 import { AgentMailService } from '../mail/agent-mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AccessService } from '../permissions/access.service';
 import {
   formatDate,
   parseWeekStart,
+  periodBounds,
   previousWeekStart,
   shanghaiWeekStart,
   weekBounds,
+  type PeriodBounds,
 } from './week';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -41,7 +49,7 @@ type WeekTaskRecord = Prisma.TaskGetPayload<{
   };
 }>;
 
-interface WeekTaskRef {
+export interface WeekTaskRef {
   taskId: string;
   title: string;
   columnName: string;
@@ -54,7 +62,7 @@ interface WeekTaskRef {
   reason?: string;
 }
 
-interface WeekMetrics extends Record<string, number> {
+export interface WeekMetrics extends Record<string, number> {
   createdTasks: number;
   completedTasks: number;
   activeTasks: number;
@@ -79,6 +87,88 @@ interface WeekData {
   riskTaskList: WeekTaskRef[];
   upcomingTaskList: WeekTaskRef[];
 }
+
+export type ReportPeriod = 'daily' | 'weekly';
+export type ReportScope = 'team' | 'member';
+
+export interface PeriodMemberStats {
+  userId: string;
+  name: string;
+  role: ProjectRole;
+  openTaskCount: number;
+  overdueTaskCount: number;
+  blockedTaskCount: number;
+  completedTaskCount: number;
+  totalTaskCount: number;
+}
+
+interface PeriodAssignee {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+  role: ProjectRole;
+  skills: string[];
+}
+
+export interface PeriodReportResult {
+  project: { id: string; name: string; color: string; archived: boolean };
+  period: ReportPeriod;
+  scope: ReportScope;
+  startDate: string;
+  endDate: string;
+  generatedAt: string;
+  assignee: PeriodAssignee | null;
+  metrics: WeekMetrics;
+  summary: string;
+  memberStats?: PeriodMemberStats[];
+  unassignedOpenTaskCount?: number;
+  activeMemberDetails: Array<{ userId: string; name: string; actions: number }>;
+  completionByMember: Array<{ userId: string; name: string; completed: number }>;
+  highlightTasks: Array<{ taskId: string; title: string; completedAt: string | null }>;
+  completedTaskList: WeekTaskRef[];
+  openTaskList: WeekTaskRef[];
+  riskTaskList: WeekTaskRef[];
+  upcomingTaskList: WeekTaskRef[];
+}
+
+export interface PeriodReportNarrativeResult {
+  narrative: string;
+  source: 'ai' | 'local';
+  model: string | null;
+  notice: string | null;
+  generatedAt: string;
+}
+
+interface PeriodData {
+  startDate: string;
+  endDate: string;
+  generatedAt: string;
+  metrics: WeekMetrics;
+  summary: string;
+  activeMemberDetails: Array<{ userId: string; name: string; actions: number }>;
+  completionByMember: Array<{ userId: string; name: string; completed: number }>;
+  highlightTasks: Array<{ taskId: string; title: string; completedAt: string | null }>;
+  completedTaskList: WeekTaskRef[];
+  openTaskList: WeekTaskRef[];
+  riskTaskList: WeekTaskRef[];
+  upcomingTaskList: WeekTaskRef[];
+  memberStats?: PeriodMemberStats[];
+  unassignedOpenTaskCount?: number;
+}
+
+interface PeriodCollectOptions {
+  period: ReportPeriod;
+  scope: ReportScope;
+  referenceNow: Date;
+  generatedAt?: Date;
+  assigneeId?: string;
+  memberName?: string;
+  includeMemberStats?: boolean;
+}
+
+type PeriodMembershipRecord = Prisma.ProjectMemberGetPayload<{
+  select: { userId: true; role: true; user: { select: { name: true } } };
+}>;
 
 function dueValue(task: WeekTaskRecord): number {
   return task.dueDate ? task.dueDate.getTime() : Number.MAX_SAFE_INTEGER;
@@ -142,12 +232,109 @@ function buildSummary(input: {
   return parts.join('');
 }
 
+export function buildPeriodSummary(input: {
+  period: ReportPeriod;
+  scope: ReportScope;
+  memberName?: string;
+  metrics: WeekMetrics;
+  completion: Array<{ name: string; completed: number }>;
+  risks: WeekTaskRef[];
+  open: WeekTaskRecord[];
+}): string {
+  const { period, scope, memberName, metrics, completion, risks, open } = input;
+  const rangeLabel = period === 'daily' ? '今日' : '本周';
+  const parts: string[] = [];
+  if (scope === 'member') {
+    const member = memberName?.trim() || '该成员';
+    parts.push(
+      `${rangeLabel}，${member}新增 ${metrics.createdTasks} 个任务，完成 ${metrics.completedTasks} 个；当前负责 ${metrics.activeTasks} 个待推进任务，其中 ${metrics.overdueTasks} 个逾期、${metrics.blockedTasks} 个被依赖阻塞。`,
+    );
+    if (metrics.comments > 0) {
+      parts.push(`新增评论 ${metrics.comments} 条。`);
+    }
+  } else {
+    parts.push(
+      `${rangeLabel}新增 ${metrics.createdTasks} 个任务，完成 ${metrics.completedTasks} 个；当前 ${metrics.activeTasks} 个待推进，其中 ${metrics.overdueTasks} 个逾期、${metrics.blockedTasks} 个被依赖阻塞。`,
+    );
+    if (metrics.activeMembers > 0) {
+      parts.push(`共有 ${metrics.activeMembers} 位成员参与协作，新增评论 ${metrics.comments} 条。`);
+    }
+    const leader = completion[0];
+    if (leader) {
+      parts.push(`完成最多的是 ${leader.name}（${leader.completed} 项）。`);
+    }
+  }
+  if (risks.length > 0) {
+    const names = risks
+      .slice(0, 3)
+      .map((task) => `「${task.title}」`)
+      .join('、');
+    parts.push(`建议优先关注${names}${risks.length > 3 ? ` 等 ${risks.length} 个风险任务` : ''}。`);
+  } else {
+    parts.push('当前没有逾期或被依赖阻塞的任务。');
+  }
+  const next = open.filter((task) => !risks.some((risk) => risk.taskId === task.id)).slice(0, 3);
+  if (next.length > 0) {
+    parts.push(`接下来建议优先推进${next.map((task) => `「${task.title}」`).join('、')}。`);
+  }
+  return parts.join('');
+}
+
+function computeMemberStats(
+  memberships: PeriodMembershipRecord[],
+  tasks: WeekTaskRecord[],
+  start: Date,
+  endExclusive: Date,
+  referenceNow: Date,
+): PeriodMemberStats[] {
+  const stats = new Map<string, PeriodMemberStats>();
+  for (const membership of memberships) {
+    stats.set(membership.userId, {
+      userId: membership.userId,
+      name: membership.user.name,
+      role: membership.role,
+      openTaskCount: 0,
+      overdueTaskCount: 0,
+      blockedTaskCount: 0,
+      completedTaskCount: 0,
+      totalTaskCount: 0,
+    });
+  }
+  for (const task of tasks) {
+    if (!task.assigneeId) continue;
+    const entry = stats.get(task.assigneeId);
+    if (!entry) continue;
+    entry.totalTaskCount += 1;
+    if (!task.completedAt) {
+      entry.openTaskCount += 1;
+      if (task.dueDate && task.dueDate.getTime() < referenceNow.getTime()) {
+        entry.overdueTaskCount += 1;
+      }
+      if (task.blockedByDependencies.length > 0) entry.blockedTaskCount += 1;
+      continue;
+    }
+    if (
+      task.completedAt.getTime() >= start.getTime() &&
+      task.completedAt.getTime() < endExclusive.getTime()
+    ) {
+      entry.completedTaskCount += 1;
+    }
+  }
+  const result: PeriodMemberStats[] = [];
+  for (const membership of memberships) {
+    const entry = stats.get(membership.userId);
+    if (entry) result.push(entry);
+  }
+  return result;
+}
+
 @Injectable()
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name);
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly access: AccessService,
     private readonly activities: ActivitiesService,
     private readonly notifications: NotificationsService,
     private readonly ai: AiService,
@@ -176,20 +363,42 @@ export class ReportsService {
     };
   }
 
-  private async collectWeek(
+  private async collectPeriod(
     project: { id: string; name: string; color: string },
-    weekStart: Date,
-    live: boolean,
-  ): Promise<WeekData> {
-    const { start, endExclusive, endDate } = weekBounds(weekStart);
+    bounds: PeriodBounds,
+    options: PeriodCollectOptions,
+  ): Promise<PeriodData> {
+    const { start, endExclusive, startDate, endDate } = bounds;
     const range = { gte: start, lt: endExclusive };
-    const now = new Date();
-    const referenceNow = live ? now : endExclusive;
+    const referenceNow = options.referenceNow;
+    const generatedAt = options.generatedAt ?? referenceNow;
     const upcomingEnd = new Date(referenceNow.getTime() + 7 * DAY_MS);
+    const assigneeId = options.assigneeId;
 
-    const [tasks, comments, activityGroups] = await Promise.all([
+    const taskWhere: Prisma.TaskWhereInput = { projectId: project.id, deletedAt: null };
+    if (assigneeId) taskWhere.assigneeId = assigneeId;
+    const commentWhere: Prisma.TaskCommentWhereInput = {
+      deletedAt: null,
+      createdAt: range,
+      task: { projectId: project.id },
+    };
+    if (assigneeId) commentWhere.authorId = assigneeId;
+    const activityWhere: Prisma.ActivityWhereInput = {
+      projectId: project.id,
+      createdAt: range,
+      actorId: assigneeId ?? { not: null },
+    };
+    const membershipsPromise: Promise<PeriodMembershipRecord[]> = options.includeMemberStats
+      ? this.prisma.projectMember.findMany({
+          where: { projectId: project.id },
+          select: { userId: true, role: true, user: { select: { name: true } } },
+          orderBy: { joinedAt: 'asc' },
+        })
+      : Promise.resolve([]);
+
+    const [tasks, comments, activityGroups, memberships] = await Promise.all([
       this.prisma.task.findMany({
-        where: { projectId: project.id, deletedAt: null },
+        where: taskWhere,
         select: {
           id: true,
           title: true,
@@ -207,14 +416,13 @@ export class ReportsService {
           },
         },
       }),
-      this.prisma.taskComment.count({
-        where: { deletedAt: null, createdAt: range, task: { projectId: project.id } },
-      }),
+      this.prisma.taskComment.count({ where: commentWhere }),
       this.prisma.activity.groupBy({
         by: ['actorId'],
-        where: { projectId: project.id, createdAt: range, actorId: { not: null } },
+        where: activityWhere,
         _count: { _all: true },
       }),
+      membershipsPromise,
     ]);
 
     const actorIds = activityGroups
@@ -299,19 +507,36 @@ export class ReportsService {
       totalTasks: tasks.length,
     };
     const riskRefs = risks.map((entry) => taskRef(entry.task, entry.reasons.join('、')));
-    const summary = buildSummary({
+    const summaryInput = {
       metrics,
       completion,
       risks: riskRefs,
       open: [...openTasks].sort(sortPlan),
-    });
+    };
+    const summary =
+      options.period === 'weekly' && options.scope === 'team'
+        ? buildSummary(summaryInput)
+        : buildPeriodSummary({
+            ...summaryInput,
+            period: options.period,
+            scope: options.scope,
+            memberName: options.memberName,
+          });
+    const memberStats = options.includeMemberStats
+      ? computeMemberStats(memberships, tasks, start, endExclusive, referenceNow)
+      : undefined;
+    const unassignedOpenTaskCount = options.includeMemberStats
+      ? openTasks.filter((task) => !task.assigneeId).length
+      : undefined;
 
     return {
-      weekStart: formatDate(weekStart),
-      weekEnd: formatDate(endDate),
-      generatedAt: now.toISOString(),
+      startDate,
+      endDate,
+      generatedAt: generatedAt.toISOString(),
       metrics,
       summary,
+      ...(memberStats ? { memberStats } : {}),
+      ...(unassignedOpenTaskCount !== undefined ? { unassignedOpenTaskCount } : {}),
       activeMemberDetails: activeMembers.slice(0, 10),
       completionByMember: completion,
       highlightTasks: completedInWeek.slice(0, 5).map((task) => ({
@@ -326,6 +551,44 @@ export class ReportsService {
         .map((task) => taskRef(task)),
       riskTaskList: riskRefs.slice(0, 10),
       upcomingTaskList: upcomingTasks.slice(0, 10).map((task) => taskRef(task)),
+    };
+  }
+
+  private async collectWeek(
+    project: { id: string; name: string; color: string },
+    weekStart: Date,
+    live: boolean,
+  ): Promise<WeekData> {
+    const now = new Date();
+    const bounds = weekBounds(weekStart);
+    const data = await this.collectPeriod(
+      project,
+      {
+        start: bounds.start,
+        endExclusive: bounds.endExclusive,
+        startDate: formatDate(weekStart),
+        endDate: formatDate(bounds.endDate),
+      },
+      {
+        period: 'weekly',
+        scope: 'team',
+        referenceNow: live ? now : bounds.endExclusive,
+        generatedAt: now,
+      },
+    );
+    return {
+      weekStart: data.startDate,
+      weekEnd: data.endDate,
+      generatedAt: data.generatedAt,
+      metrics: data.metrics,
+      summary: data.summary,
+      activeMemberDetails: data.activeMemberDetails,
+      completionByMember: data.completionByMember,
+      highlightTasks: data.highlightTasks,
+      completedTaskList: data.completedTaskList,
+      openTaskList: data.openTaskList,
+      riskTaskList: data.riskTaskList,
+      upcomingTaskList: data.upcomingTaskList,
     };
   }
 
@@ -344,6 +607,156 @@ export class ReportsService {
         archived: project.archivedAt !== null,
       },
       ...data,
+    };
+  }
+
+  async period(
+    projectId: string,
+    actorId: string,
+    query: PeriodReportQuery,
+  ): Promise<PeriodReportResult> {
+    const [access, project] = await Promise.all([
+      this.access.getContext(actorId, projectId),
+      this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { id: true, name: true, color: true, archivedAt: true },
+      }),
+    ]);
+    if (!project) throw new DomainError('NOT_FOUND', 404, 'Project not found');
+
+    const leader = access.permissions.includes('report:generate');
+    const period: ReportPeriod = query.period ?? 'weekly';
+    const scope: ReportScope = query.scope ?? (leader ? 'team' : 'member');
+    if (scope === 'team') {
+      if (!leader) throw new DomainError('FORBIDDEN', 403, 'Missing permission report:generate');
+      if (query.userId) {
+        throw new DomainError(
+          'VALIDATION_ERROR',
+          400,
+          'userId is only allowed when scope is member',
+        );
+      }
+    }
+    const targetUserId = scope === 'member' ? (query.userId ?? actorId) : undefined;
+    if (targetUserId !== actorId && !leader) {
+      throw new DomainError('FORBIDDEN', 403, 'Missing permission report:generate');
+    }
+
+    let assignee: PeriodAssignee | null = null;
+    if (targetUserId) {
+      const member = await this.prisma.projectMember.findUnique({
+        where: { projectId_userId: { projectId, userId: targetUserId } },
+        select: {
+          role: true,
+          skills: true,
+          user: { select: { id: true, name: true, avatarUrl: true } },
+        },
+      });
+      if (!member) throw new DomainError('NOT_FOUND', 404, 'Project member not found');
+      assignee = {
+        userId: member.user.id,
+        name: member.user.name,
+        avatarUrl: member.user.avatarUrl,
+        role: member.role,
+        skills: member.skills,
+      };
+    }
+
+    let bounds: PeriodBounds;
+    try {
+      bounds = periodBounds(period, query.date);
+    } catch (error) {
+      throw new DomainError(
+        'VALIDATION_ERROR',
+        400,
+        error instanceof Error ? error.message : 'Invalid date',
+      );
+    }
+
+    const referenceNow = new Date();
+    const data = await this.collectPeriod(project, bounds, {
+      period,
+      scope,
+      referenceNow,
+      generatedAt: referenceNow,
+      assigneeId: targetUserId,
+      memberName: assignee?.name,
+      includeMemberStats: scope === 'team',
+    });
+
+    return {
+      project: {
+        id: project.id,
+        name: project.name,
+        color: project.color,
+        archived: project.archivedAt !== null,
+      },
+      period,
+      scope,
+      startDate: data.startDate,
+      endDate: data.endDate,
+      generatedAt: data.generatedAt,
+      assignee,
+      metrics: data.metrics,
+      summary: data.summary,
+      ...(scope === 'team'
+        ? {
+            memberStats: data.memberStats ?? [],
+            unassignedOpenTaskCount: data.unassignedOpenTaskCount ?? 0,
+          }
+        : {}),
+      activeMemberDetails: data.activeMemberDetails,
+      completionByMember: data.completionByMember,
+      highlightTasks: data.highlightTasks,
+      completedTaskList: data.completedTaskList,
+      openTaskList: data.openTaskList,
+      riskTaskList: data.riskTaskList,
+      upcomingTaskList: data.upcomingTaskList,
+    };
+  }
+
+  async periodNarrative(
+    projectId: string,
+    actorId: string,
+    input: PeriodReportNarrativeInput,
+  ): Promise<PeriodReportNarrativeResult> {
+    const report = await this.period(projectId, actorId, {
+      period: input.period,
+      date: input.date,
+      scope: input.scope,
+      userId: input.userId,
+    });
+    const result = await this.ai.composePeriodNarrative({
+      projectName: report.project.name,
+      period: report.period,
+      scope: report.scope,
+      startDate: report.startDate,
+      endDate: report.endDate,
+      memberName: report.assignee?.name,
+      summary: report.summary,
+      metrics: report.metrics,
+      memberStats: report.memberStats?.slice(0, 20).map((member) => ({
+        name: member.name,
+        role: member.role,
+        openTaskCount: member.openTaskCount,
+        overdueTaskCount: member.overdueTaskCount,
+        blockedTaskCount: member.blockedTaskCount,
+        completedTaskCount: member.completedTaskCount,
+        totalTaskCount: member.totalTaskCount,
+      })),
+      unassignedOpenTaskCount: report.unassignedOpenTaskCount,
+      completed: report.completedTaskList.map((task) => task.title),
+      open: report.openTaskList.map((task) => task.title),
+      risks: report.riskTaskList.map((task) => task.title),
+      upcoming: report.upcomingTaskList.map((task) => task.title),
+      tone: input.tone,
+    });
+    return {
+      narrative: result.narrative,
+      source: result.source,
+      model: result.model ?? null,
+      notice: result.notice ?? null,
+      generatedAt: new Date().toISOString(),
     };
   }
 

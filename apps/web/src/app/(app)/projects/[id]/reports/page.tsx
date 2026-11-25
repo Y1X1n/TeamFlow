@@ -3,10 +3,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, Loader2, Sparkles } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { ProjectPageError, ProjectPageHeader } from '@/features/activities/project-page-header';
 import { CurrentWeekSummaryCard } from '@/features/reports/current-week-summary';
+import { PeriodReportSection } from '@/features/reports/period-report-section';
 import { WeeklyReportCard } from '@/features/reports/weekly-report-card';
 import { currentWeekStart } from '@/features/reports/week';
 import { Button } from '@/components/ui/button';
@@ -14,20 +15,33 @@ import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, ApiError } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
-import type { MyPermissions, Project, WeeklyReport } from '@/lib/types';
+import type {
+  MyPermissions,
+  Project,
+  ReportPeriod,
+  ReportScope,
+  WeeklyReport,
+} from '@/lib/types';
+
+interface PeriodReportInitialParams {
+  period?: ReportPeriod;
+  scope?: ReportScope;
+  date?: string;
+  userId?: string;
+}
 
 function reportErrorText(error: unknown): string {
   if (error instanceof ApiError) {
     switch (error.code) {
       case 'FORBIDDEN':
-        return '你没有生成周报的权限。';
+        return '你没有生成报告的权限。';
       case 'PROJECT_ARCHIVED':
-        return '项目已归档，无法生成周报。';
+        return '项目已归档，无法生成报告。';
       default:
         return error.message;
     }
   }
-  return '生成周报失败，请稍后重试。';
+  return '生成报告失败，请稍后重试。';
 }
 
 export default function ProjectReportsPage() {
@@ -35,6 +49,22 @@ export default function ProjectReportsPage() {
   const projectId = params.id;
   const queryClient = useQueryClient();
   const [openReportIds, setOpenReportIds] = useState<string[]>([]);
+  const [initialReportParams, setInitialReportParams] =
+    useState<PeriodReportInitialParams | null>(null);
+
+  useEffect(() => {
+    const search = new URLSearchParams(window.location.search);
+    const period = search.get('period');
+    const scope = search.get('scope');
+    const date = search.get('date');
+    const userId = search.get('userId');
+    setInitialReportParams({
+      period: period === 'daily' || period === 'weekly' ? period : undefined,
+      scope: scope === 'team' || scope === 'member' ? scope : undefined,
+      date: date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined,
+      userId: userId ?? undefined,
+    });
+  }, []);
 
   const projectQuery = useQuery({
     queryKey: queryKeys.project(projectId),
@@ -121,13 +151,28 @@ export default function ProjectReportsPage() {
       ) : !canView ? (
         <Card className="mx-auto max-w-lg p-8 text-center">
           <FileText className="mx-auto h-8 w-8 text-muted-foreground" aria-hidden="true" />
-          <h2 className="mt-3 text-lg font-semibold">无权查看周报</h2>
+          <h2 className="mt-3 text-lg font-semibold">无权查看报告</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            你的角色没有查看周报的权限（需要 report:view）。
+            你的角色没有查看报告的权限（需要 report:view）。
           </p>
         </Card>
       ) : (
         <div className="space-y-6">
+          {initialReportParams ? (
+            <PeriodReportSection
+              projectId={projectId}
+              canView={canView}
+              canGenerate={canGenerate}
+              archived={archived}
+              initialPeriod={initialReportParams.period}
+              initialScope={initialReportParams.scope}
+              initialDate={initialReportParams.date}
+              initialUserId={initialReportParams.userId}
+            />
+          ) : (
+            <Skeleton className="h-64 w-full rounded-xl" />
+          )}
+
           <CurrentWeekSummaryCard
             projectId={projectId}
             canGenerate={canGenerate}

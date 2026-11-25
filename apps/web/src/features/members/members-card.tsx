@@ -1,10 +1,10 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Loader2, UserMinus } from 'lucide-react';
+import { KeyRound, Loader2, Pencil, UserMinus } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { PROJECT_ROLE_LABELS, type ProjectRole } from '@teamflow/shared/enums';
+import { MEMBER_SKILLS_MAX, PROJECT_ROLE_LABELS, type ProjectRole } from '@teamflow/shared/enums';
 import { isProjectRole } from '@teamflow/shared/permissions';
 import { UserAvatar } from '@/components/ui/avatar';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
@@ -33,6 +33,7 @@ import { queryKeys } from '@/lib/query-keys';
 import type { Member } from '@/lib/types';
 import { avatarColor, formatDate } from '@/lib/utils';
 import { MemberPermissionsDialog } from './member-permissions-dialog';
+import { MemberSkillsDialog } from './member-skills-dialog';
 
 interface MembersCardProps {
   projectId: string;
@@ -82,6 +83,7 @@ export function MembersCard({ projectId, myRole, canManage, archived }: MembersC
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [permissionTarget, setPermissionTarget] = useState<Member | null>(null);
+  const [skillsTarget, setSkillsTarget] = useState<Member | null>(null);
   const [removeTarget, setRemoveTarget] = useState<Member | null>(null);
 
   const membersQuery = useQuery({
@@ -156,7 +158,7 @@ export function MembersCard({ projectId, myRole, canManage, archived }: MembersC
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] border-collapse text-sm">
+            <table className="w-full min-w-[900px] border-collapse text-sm">
               <thead>
                 <tr className="border-b text-left text-xs text-muted-foreground">
                   <th scope="col" className="py-2 pr-4 font-medium">
@@ -164,6 +166,9 @@ export function MembersCard({ projectId, myRole, canManage, archived }: MembersC
                   </th>
                   <th scope="col" className="py-2 pr-4 font-medium">
                     角色
+                  </th>
+                  <th scope="col" className="py-2 pr-4 font-medium">
+                    职能
                   </th>
                   <th scope="col" className="py-2 pr-4 font-medium">
                     加入时间
@@ -179,6 +184,8 @@ export function MembersCard({ projectId, myRole, canManage, archived }: MembersC
                   const adminLocked = member.role === 'ADMIN' && myRole !== 'OWNER';
                   const canEditRow = canManage && !isOwnerRow && !adminLocked;
                   const isSelf = member.userId === user?.id;
+                  const canEditSkills = !archived && (isSelf || canEditRow);
+                  const memberSkills = member.skills ?? [];
                   return (
                     <tr key={member.id} className="border-b last:border-0 align-middle">
                       <td className="py-3 pr-4">
@@ -233,6 +240,32 @@ export function MembersCard({ projectId, myRole, canManage, archived }: MembersC
                           </Badge>
                         )}
                       </td>
+                      <td className="py-3 pr-4">
+                        <div className="flex max-w-[220px] flex-wrap items-center gap-1">
+                          {memberSkills.length > 0 ? (
+                            memberSkills.slice(0, MEMBER_SKILLS_MAX).map((skill) => (
+                              <Badge key={skill} variant="outline" className="font-normal">
+                                {skill}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">未设置</span>
+                          )}
+                        </div>
+                        {canEditSkills ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="mt-1 h-6 px-1.5 text-[11px] text-muted-foreground"
+                            aria-label={`编辑 ${member.name} 的职能标签`}
+                            onClick={() => setSkillsTarget(member)}
+                          >
+                            <Pencil className="h-3 w-3" aria-hidden="true" />
+                            编辑职能
+                          </Button>
+                        ) : null}
+                      </td>
                       <td className="whitespace-nowrap py-3 pr-4 text-xs text-muted-foreground">
                         {formatDate(member.joinedAt)}
                       </td>
@@ -271,6 +304,9 @@ export function MembersCard({ projectId, myRole, canManage, archived }: MembersC
         )}
 
         <p className="mt-3 text-xs text-muted-foreground">
+          职能标签用于智能分工推荐；成员可编辑自己的标签，拥有成员管理权限者可编辑其他成员的标签。
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
           {archived
             ? '项目已归档，成员管理已停用。'
             : canManage
@@ -286,6 +322,19 @@ export function MembersCard({ projectId, myRole, canManage, archived }: MembersC
           open
           onOpenChange={(open) => {
             if (!open) setPermissionTarget(null);
+          }}
+        />
+      ) : null}
+
+      {skillsTarget ? (
+        <MemberSkillsDialog
+          key={skillsTarget.userId}
+          projectId={projectId}
+          member={skillsTarget}
+          canManage={canManage}
+          open
+          onOpenChange={(open) => {
+            if (!open) setSkillsTarget(null);
           }}
         />
       ) : null}

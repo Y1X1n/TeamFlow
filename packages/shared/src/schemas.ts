@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import {
   INVITE_ROLES,
+  MEMBER_SKILL_MAX_LENGTH,
+  MEMBER_SKILLS_MAX,
   NOTIFICATION_TYPES,
   PROJECT_ROLES,
   PROJECT_TEMPLATE_IDS,
@@ -20,6 +22,16 @@ const passwordSchema = z
   .regex(/[A-Za-z]/, '密码必须包含字母')
   .regex(/\d/, '密码必须包含数字');
 const nameSchema = z.string().trim().min(1).max(40);
+const skillSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MEMBER_SKILL_MAX_LENGTH)
+  .regex(/^[^\r\n]+$/, '职能标签不能包含换行');
+const memberSkillsSchema = z
+  .array(skillSchema)
+  .max(MEMBER_SKILLS_MAX, `最多 ${MEMBER_SKILLS_MAX} 个职能标签`)
+  .refine((items) => new Set(items).size === items.length, '职能标签不能重复');
 const httpAvatarUrlSchema = z
   .string()
   .trim()
@@ -124,10 +136,18 @@ export const updateMemberSchema = z
   .object({
     role: z.enum(['ADMIN', 'MEMBER', 'VIEWER']).optional(),
     permissionOverrides: overridesSchema.nullable().optional(),
+    skills: memberSkillsSchema.optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, '至少提供一个字段');
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
+
+export const updateMemberSkillsSchema = z
+  .object({
+    skills: memberSkillsSchema,
+  })
+  .strict();
+export type UpdateMemberSkillsInput = z.infer<typeof updateMemberSkillsSchema>;
 
 export const createColumnSchema = z
   .object({
@@ -340,6 +360,48 @@ export const reportsQuerySchema = z
   })
   .strict();
 export type ReportsQuery = z.infer<typeof reportsQuerySchema>;
+
+const reportDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式必须为 YYYY-MM-DD');
+const reportPeriodSchema = z.enum(['daily', 'weekly']);
+const reportScopeSchema = z.enum(['team', 'member']);
+
+export const periodReportQuerySchema = z
+  .object({
+    period: reportPeriodSchema.optional(),
+    date: reportDateSchema.optional(),
+    scope: reportScopeSchema.optional(),
+    userId: idSchema.optional(),
+  })
+  .strict();
+export type PeriodReportQuery = z.infer<typeof periodReportQuerySchema>;
+
+export const periodReportNarrativeSchema = z
+  .object({
+    period: reportPeriodSchema.optional(),
+    date: reportDateSchema.optional(),
+    scope: reportScopeSchema.optional(),
+    userId: idSchema.optional(),
+    tone: z.enum(['concise', 'detailed']).optional(),
+  })
+  .strict();
+export type PeriodReportNarrativeInput = z.infer<typeof periodReportNarrativeSchema>;
+
+export const assignSuggestionsSchema = z
+  .object({
+    limit: z.number().int().min(1).max(5).optional(),
+    useAi: z.boolean().optional(),
+  })
+  .strict();
+export type AssignSuggestionsInput = z.infer<typeof assignSuggestionsSchema>;
+
+export const aiPlanSchema = z
+  .object({
+    useAi: z.boolean().optional(),
+  })
+  .strict();
+export type AiPlanInput = z.infer<typeof aiPlanSchema>;
 
 export const deleteColumnQuerySchema = z
   .object({

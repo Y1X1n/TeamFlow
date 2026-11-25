@@ -49,6 +49,7 @@ export const envSchema = z.object({
     z.string().min(1).optional(),
   ),
   AI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(20_000),
+  AI_ALLOW_LOOPBACK: boolFromString(false),
   AGENT_MAIL_ENABLED: boolFromString(false),
   AGENT_MAIL_CLI_ENTRY: z.preprocess(
     (value) => (value === '' ? undefined : value),

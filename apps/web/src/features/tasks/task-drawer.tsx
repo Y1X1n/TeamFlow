@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Copy, History, Loader2, Pencil, Trash2 } from 'lucide-react';
+import { ChevronDown, Copy, History, Loader2, Pencil, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { toast } from 'sonner';
@@ -36,6 +36,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { RichTextEditor } from '@/components/rich-text-editor';
 import { RichTextView } from '@/components/rich-text-view';
 import { TaskActivity } from './task-activity';
+import { TaskAssignSuggestions } from './task-assign-suggestions';
 import { TaskAttachments } from './task-attachments';
 import { TaskComments } from './task-comments';
 import { TaskDependencies } from './task-dependencies';
@@ -86,6 +87,7 @@ export function TaskDrawer({
   const [draftsFor, setDraftsFor] = useState<string | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const [assignSuggestionsOpen, setAssignSuggestionsOpen] = useState(false);
 
   const taskQuery = useQuery<TaskDetail, Error>({
     queryKey: queryKeys.task(taskId),
@@ -205,6 +207,13 @@ export function TaskDrawer({
     const nextAssignee = value === 'unassigned' ? null : value;
     if (nextAssignee === (task.assignee?.userId ?? null)) return;
     updateTask.mutate({ assigneeId: nextAssignee });
+  };
+
+  const applySuggestedAssignee = async (userId: string) => {
+    await updateTask.mutateAsync({ assigneeId: userId });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.taskActivities(taskId) });
   };
 
   const saveDueDate = () => {
@@ -412,7 +421,23 @@ export function TaskDrawer({
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="task-assignee">负责人</Label>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="task-assignee">负责人</Label>
+                    {canAssign && !archived ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-1.5 text-xs"
+                        onClick={() => setAssignSuggestionsOpen(true)}
+                        disabled={updateTask.isPending}
+                        aria-haspopup="dialog"
+                      >
+                        <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+                        智能推荐
+                      </Button>
+                    ) : null}
+                  </div>
                   <Select
                     value={task.assignee?.userId ?? 'unassigned'}
                     onValueChange={handleAssigneeChange}
@@ -686,6 +711,19 @@ export function TaskDrawer({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <TaskAssignSuggestions
+          projectId={projectId}
+          taskId={taskId}
+          taskTitle={task?.title ?? ''}
+          currentAssigneeId={task?.assignee?.userId ?? null}
+          canAssign={canAssign}
+          archived={archived}
+          open={assignSuggestionsOpen}
+          onOpenChange={setAssignSuggestionsOpen}
+          onAssign={applySuggestedAssignee}
+          onAssigned={() => setAssignSuggestionsOpen(false)}
+        />
       </SheetContent>
     </Sheet>
   );

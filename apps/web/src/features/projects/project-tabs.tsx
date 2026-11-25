@@ -11,7 +11,7 @@ const TABS = [
   { segment: '', label: '看板', icon: LayoutDashboard },
   { segment: 'overview', label: '概览', icon: BarChart3 },
   { segment: 'timeline', label: '时间线', icon: History },
-  { segment: 'reports', label: '周报', icon: FileText },
+  { segment: 'reports', label: '报告', icon: FileText },
   { segment: 'settings', label: '设置', icon: Settings },
 ] as const;
 

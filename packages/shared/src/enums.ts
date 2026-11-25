@@ -66,6 +66,7 @@ export const ACTIVITY_TYPES = [
   'REPORT_EMAIL_SENT',
   'TASK_DEPENDENCY_ADDED',
   'TASK_DEPENDENCY_REMOVED',
+  'MEMBER_SKILLS_CHANGED',
 ] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 
@@ -76,6 +77,17 @@ export const TASK_DESCRIPTION_MAX_BYTES = 100 * 1024;
 export const COMMENT_TEXT_MAX_LENGTH = 5000;
 export const TASK_LABELS_MAX = 5;
 export const TASK_LABEL_MAX_LENGTH = 20;
+export const MEMBER_SKILLS_MAX = 6;
+export const MEMBER_SKILL_MAX_LENGTH = 20;
+export const MEMBER_SKILL_PRESETS = [
+  '前端',
+  '后端',
+  '设计',
+  '文档',
+  '测试',
+  '运营',
+  '答辩',
+] as const;
 export const BOARD_DEFAULT_COLUMNS = [
   { name: '待办', isDone: false },
   { name: '进行中', isDone: false },

@@ -14,6 +14,8 @@ export const queryKeys = {
   activities: (projectId: string) => ['activities', projectId] as const,
   reports: (projectId: string) => ['reports', projectId] as const,
   currentWeekReport: (projectId: string) => ['current-week-report', projectId] as const,
+  periodReport: (projectId: string, params: string) =>
+    ['period-report', projectId, params] as const,
   reportEmailStatus: (projectId: string) => ['report-email-status', projectId] as const,
   search: (q: string) => ['search', q] as const,
   aiStatus: ['ai-status'] as const,

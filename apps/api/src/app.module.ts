@@ -9,6 +9,7 @@ import { validateEnv } from './config/env';
 import { HealthModule } from './health/health.module';
 import { ActivitiesModule } from './modules/activities/activities.module';
 import { AiModule } from './modules/ai/ai.module';
+import { AssignmentsModule } from './modules/assignments/assignments.module';
 import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
@@ -102,6 +103,7 @@ import { RedisModule } from './redis/redis.module';
     JobsModule,
     SearchModule,
     AiModule,
+    AssignmentsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

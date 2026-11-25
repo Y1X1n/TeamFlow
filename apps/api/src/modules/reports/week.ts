@@ -44,3 +44,57 @@ export function parseWeekStart(value: string): Date {
   if (date.getUTCDay() !== 1) throw new Error('weekStart must be a Monday');
   return date;
 }
+
+export interface PeriodBounds {
+  start: Date;
+  endExclusive: Date;
+  startDate: string;
+  endDate: string;
+}
+
+export function parseDateKey(value: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) throw new Error('Invalid date');
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    throw new Error('Invalid date');
+  }
+  return date;
+}
+
+export function dayBounds(dateKey: string): PeriodBounds {
+  const startDate = formatDate(parseDateKey(dateKey));
+  const start = new Date(parseDateKey(startDate).getTime() - SHANGHAI_OFFSET_MS);
+  const endExclusive = new Date(start.getTime() + DAY_MS);
+  return { start, endExclusive, startDate, endDate: startDate };
+}
+
+export function normalizeWeekStart(value: string | Date): string {
+  const date = typeof value === 'string' ? parseDateKey(value) : value;
+  return formatDate(shanghaiWeekStart(date));
+}
+
+export function periodBounds(
+  period: 'daily' | 'weekly',
+  dateKey?: string,
+  now: Date = new Date(),
+): PeriodBounds {
+  if (period === 'daily') {
+    return dayBounds(dateKey ?? shanghaiDateKey(now));
+  }
+  const mondayKey = dateKey ? normalizeWeekStart(dateKey) : formatDate(shanghaiWeekStart(now));
+  const bounds = weekBounds(parseDateKey(mondayKey));
+  return {
+    start: bounds.start,
+    endExclusive: bounds.endExclusive,
+    startDate: mondayKey,
+    endDate: formatDate(bounds.endDate),
+  };
+}

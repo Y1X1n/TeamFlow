@@ -1,3 +1,4 @@
+import { downloadTextFile, sanitizeFileName } from '@/lib/download';
 import { formatDateTime } from '@/lib/utils';
 import type { WeeklyReport } from '@/lib/types';
 import { formatWeekRange } from './week';
@@ -12,13 +13,6 @@ const METRIC_ROWS: Array<{ key: keyof ReportMetrics; label: string }> = [
   { key: 'activeMembers', label: '活跃成员' },
   { key: 'totalTasks', label: '总任务数' },
 ];
-
-function sanitizeFileName(value: string): string {
-  return value
-    .replace(/[\\/:*?"<>|\s]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-}
 
 export function weeklyReportFileName(report: WeeklyReport, projectName?: string): string {
   const prefix = sanitizeFileName(projectName?.trim() || '项目');
@@ -98,13 +92,5 @@ export function buildWeeklyReportMarkdown(report: WeeklyReport, projectName?: st
 }
 
 export function downloadMarkdownFile(fileName: string, content: string): void {
-  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-  const objectUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = objectUrl;
-  anchor.download = fileName;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  downloadTextFile(fileName, content, 'text/markdown;charset=utf-8');
 }

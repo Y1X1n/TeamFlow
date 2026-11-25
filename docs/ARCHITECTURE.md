@@ -81,11 +81,12 @@ teamflow/
 | Members       | 邀请、接受、角色、权限覆盖                    | 邀请 token 哈希；OWNER 不变量；覆盖键校验                                     |
 | Permissions   | 权限目录、有效权限计算、守卫                  | `@RequirePermission()` + `PermissionGuard`；项目上下文解析                    |
 | Tasks         | 任务 CRUD、移动（分数索引）                   | `positionBetween(prev, next)`；完成态联动；Redis 事件发布                     |
+| Assignments   | 任务负责人推荐（规则评分 + 可选 AI 排序）     | 只读任务/成员/负载；纯函数评分；不写库；限流 10 次/分钟                       |
 | Comments      | 评论 CRUD、@解析                              | TipTap JSON → 文本/mentions；软删除                                           |
 | Attachments   | 上传/下载/删除                                | `FileInterceptor` 流式写 MinIO；魔数校验；签名 URL                            |
 | Notifications | 列表/未读/已读、创建（队列消费）              | dedupeKey 唯一索引；批量已读                                                  |
 | Activities    | 时间线查询、事件写入                          | 游标分页 `(createdAt,id)`                                                     |
-| Reports       | 周报生成与查询                                | upsert `(projectId, weekStart)`；定时任务                                     |
+| Reports       | 周报生成与查询；周期报告实时汇总              | upsert `(projectId, weekStart)`；周期报告复用同一采集器，按需计算不落库       |
 | Realtime      | Hocuspocus 独立端口(1235)、Yjs 投影、presence | onAuthenticate 校验 JWT+成员；readOnly 客户端；文档从 DB 重建；Redis 订阅注入 |
 | Queues        | `notifications`、`automation`、`reports`      | 幂等 jobId；重试退避；优雅关闭                                                |
 
@@ -221,15 +222,16 @@ MVP 目标是小型团队在线协作，不要求离线编辑；选用服务端�
 
 ## 10. 安全要点
 
-| 面   | 措施                                                                                                                                     |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| 认证 | scrypt（N=2^15, r=8, p=3, maxmem=64MiB）；JWT HS256 15m；Refresh 7d 轮换 + 重放检测，哈希入库；Cookie HttpOnly/SameSite=Lax/Secure(生产) |
-| 授权 | 每个项目级路由 `PermissionGuard`；资源归属解析；OWNER 不变量                                                                             |
-| 输入 | zod 全量校验；富文本 JSON 大小限制；标签/文件名长度限制；Prisma 参数化                                                                   |
-| 上传 | 白名单 MIME + 魔数；10MB；随机对象键；签名下载                                                                                           |
-| Web  | 输出转义（TipTap 渲染为受控组件，不使用 innerHTML）；CSP（生产 Nginx 配置）                                                              |
-| 限流 | 登录 10 次/15 分钟/IP；注册 5 次/小时/IP；全局 300 次/分钟/用户                                                                          |
-| 其他 | Helmet；CORS 白名单；请求体 1MB 限制（附件路由除外）                                                                                     |
+| 面      | 措施                                                                                                                                     |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 认证    | scrypt（N=2^15, r=8, p=3, maxmem=64MiB）；JWT HS256 15m；Refresh 7d 轮换 + 重放检测，哈希入库；Cookie HttpOnly/SameSite=Lax/Secure(生产) |
+| 授权    | 每个项目级路由 `PermissionGuard`；资源归属解析；OWNER 不变量                                                                             |
+| 输入    | zod 全量校验；富文本 JSON 大小限制；标签/文件名长度限制；Prisma 参数化                                                                   |
+| 上传    | 白名单 MIME + 魔数；10MB；随机对象键；签名下载                                                                                           |
+| Web     | 输出转义（TipTap 渲染为受控组件，不使用 innerHTML）；CSP（生产 Nginx 配置）                                                              |
+| 限流    | 登录 10 次/15 分钟/IP；注册 5 次/小时/IP；全局 300 次/分钟/用户                                                                          |
+| AI 出站 | 仅 http/https；调用前校验主机并拒绝 loopback/私有/保留地址；开发环境需显式 `AI_ALLOW_LOOPBACK=true` 才允许 loopback；禁止重定向          |
+| 其他    | Helmet；CORS 白名单；请求体 1MB 限制（附件路由除外）                                                                                     |
 
 ## 11. 部署拓扑
 
@@ -292,3 +294,16 @@ flowchart TB
 | Overview         | 前端基于 `/board` + `/activities` 计算 KPI/工作负载，无新增聚合端点                   |
 
 > SSE 为单实例内存总线；API 多副本部署时需改为 Redis Pub/Sub。AI Key 仅服务端环境变量，前端只读取状态与模型名。
+
+## 15. v1.5–v1.7 模块调整
+
+| 模块        | 调整                                                                                      |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| Assignments | 新增 `assignments` 模块：纯函数评分 + 可选 AI 排序，返回候选人建议；不写任务、不写库      |
+| Reports     | 新增 `GET /reports/period` 与叙述端点；复用既有 `collectPeriod` 采集器，按需实时计算      |
+| Members     | `project_members.skills` 职能标签；成员自编辑与负责人编辑，变更写 `MEMBER_SKILLS_CHANGED` |
+| AI          | 周期叙述、负责人排序增强、`ai-plan` 拆解与分工建议；统一本地规则回退，不自动写业务数据    |
+| 基础设施    | 无新增队列/报告表；仅 v1.6 迁移增加 `skills` 列与活动枚举值                               |
+
+- 周期报告与 AI 计划均不新增后台任务；`reports`/`automation` 队列行为不变。
+- 报告、推荐与 AI 计划端点均为只读计算；职能标签写入沿用既有成员写接口。

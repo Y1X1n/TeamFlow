@@ -2,10 +2,14 @@ import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/com
 import { Throttle } from '@nestjs/throttler';
 import {
   generateReportSchema,
+  periodReportNarrativeSchema,
+  periodReportQuerySchema,
   previewReportEmailSchema,
   reportsQuerySchema,
   sendReportEmailSchema,
   type GenerateReportInput,
+  type PeriodReportNarrativeInput,
+  type PeriodReportQuery,
   type PreviewReportEmailInput,
   type ReportsQuery,
   type SendReportEmailInput,
@@ -32,6 +36,28 @@ export class ReportsController {
   @RequirePermission('report:view')
   current(@Param('projectId') projectId: string) {
     return this.reports.current(projectId);
+  }
+
+  @Get('projects/:projectId/reports/period')
+  @RequirePermission('report:view')
+  period(
+    @CurrentUser() user: { id: string },
+    @Param('projectId') projectId: string,
+    @Query(new ZodValidationPipe(periodReportQuerySchema)) query: PeriodReportQuery,
+  ) {
+    return this.reports.period(projectId, user.id, query);
+  }
+
+  @Post('projects/:projectId/reports/period/narrative')
+  @HttpCode(200)
+  @RequirePermission('report:view')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  periodNarrative(
+    @CurrentUser() user: { id: string },
+    @Param('projectId') projectId: string,
+    @Body(new ZodValidationPipe(periodReportNarrativeSchema)) body: PeriodReportNarrativeInput,
+  ) {
+    return this.reports.periodNarrative(projectId, user.id, body);
   }
 
   @Get('projects/:projectId/reports/current/email/status')

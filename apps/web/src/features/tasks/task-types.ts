@@ -12,6 +12,7 @@ export const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   MEMBER_REMOVED: '移除成员',
   MEMBER_ROLE_CHANGED: '调整成员角色',
   MEMBER_PERMISSIONS_CHANGED: '更新成员权限',
+  MEMBER_SKILLS_CHANGED: '更新成员职能',
   COLUMN_CREATED: '创建看板列',
   COLUMN_UPDATED: '更新看板列',
   COLUMN_DELETED: '删除看板列',

@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: TeamFlow API
-  version: 1.4.0
+  version: 1.7.0
   description: |
-    TeamFlow 实时项目协作平台 REST API 契约（MVP v1.4）。
+    TeamFlow 实时项目协作平台 REST API 契约（v1.7）。
 
     约定：
     - Base URL: `/api/v1`；认证方式除特别标注外均为 `Authorization: Bearer <accessToken>`。
@@ -369,6 +369,30 @@ paths:
                     items: { $ref: '#/components/schemas/Member' }
         '401': { $ref: '#/components/responses/Problem401' }
         '404': { $ref: '#/components/responses/Problem404' }
+
+  /projects/{projectId}/members/me/skills:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    patch:
+      operationId: updateMySkills
+      tags: [Members]
+      summary: 更新自己的职能标签（需要项目成员）
+      description: 成员可编辑自己的职能标签，最多 6 个，每个 1–20 字；归档项目返回 409。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateMemberSkillsRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
 
   /projects/{projectId}/members/{userId}:
     parameters:
@@ -1063,6 +1087,71 @@ paths:
         '403': { $ref: '#/components/responses/Problem403' }
         '404': { $ref: '#/components/responses/Problem404' }
 
+  /projects/{projectId}/reports/period:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: getPeriodReport
+      tags: [Reports]
+      summary: 团队或成员日报/周报（需要 report:view；团队或他人需要 report:generate）
+      description: |
+        按需实时计算，不落库。`scope` 缺省时：有 `report:generate` 的成员为 team，其余为 member。
+        成员只能查看自己的报告；团队和任意成员报告需要有效 `report:generate`。
+        完成/新增按所选日期区间统计；进行中/逾期/即将到期按当前任务状态统计。
+      parameters:
+        - name: period
+          in: query
+          schema: { type: string, enum: [daily, weekly], default: weekly }
+        - name: date
+          in: query
+          description: YYYY-MM-DD；weekly 会归一到所在周的周一；缺省为今天/本周一
+          schema: { type: string, format: date }
+        - name: scope
+          in: query
+          schema: { type: string, enum: [team, member] }
+        - name: userId
+          in: query
+          description: 仅 member scope 使用；缺省为当前用户
+          schema: { type: string }
+      responses:
+        '200':
+          description: 周期报告
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PeriodReport' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+
+  /projects/{projectId}/reports/period/narrative:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      operationId: generatePeriodReportNarrative
+      tags: [Reports]
+      summary: 生成周期报告摘要（AI 叙述，失败回退本地模板）
+      description: |
+        AI 只生成叙述/建议，任务事实由服务端统计。未配置或调用失败时返回 source=local。
+        不会写库、不发邮件。限流 10 次/分钟。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PeriodReportNarrativeRequest' }
+      responses:
+        '200':
+          description: 报告叙述
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PeriodReportNarrative' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '429': { $ref: '#/components/responses/Problem429' }
+
   /projects/{projectId}/reports/current/email/status:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -1522,6 +1611,64 @@ paths:
         '409': { $ref: '#/components/responses/Problem409' }
         '429': { $ref: '#/components/responses/Problem429' }
 
+  /tasks/{taskId}/assign-suggestions:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      operationId: suggestTaskAssignees
+      tags: [Tasks]
+      summary: 智能推荐任务负责人（需要 task:assign）
+      description: |
+        根据任务标签/描述、成员职能标签和当前负载给出前 N 位候选人；AI 只做语义匹配与理由增强，
+        服务端校验候选人并排除 VIEWER。不会自动修改任务，用户确认后走 PATCH /tasks/{taskId}。
+        限流 10 次/分钟。
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssignSuggestionsRequest' }
+      responses:
+        '200':
+          description: 候选人建议
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssignSuggestions' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '429': { $ref: '#/components/responses/Problem429' }
+
+  /tasks/{taskId}/ai-plan:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      operationId: generateTaskPlan
+      tags: [AI]
+      summary: AI 拆解任务并建议分工（需要 task:update）
+      description: |
+        生成 3–6 个步骤，包含标题、负责人建议、优先级、截止天数和步骤依赖。
+        服务端校验负责人、日期范围和依赖顺序；不会自动创建任务，由客户端预览确认后创建。
+        未配置 AI 或失败时回退本地规则（按当前负载轮询分配）。限流 10 次/分钟。
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AiPlanRequest' }
+      responses:
+        '200':
+          description: 拆解与分工建议
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiPlan' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '429': { $ref: '#/components/responses/Problem429' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1795,6 +1942,10 @@ components:
         name: { type: string }
         avatarUrl: { type: [string, 'null'] }
         role: { $ref: '#/components/schemas/ProjectRole' }
+        skills:
+          type: array
+          maxItems: 6
+          items: { type: string, minLength: 1, maxLength: 20 }
     Member:
       allOf:
         - $ref: '#/components/schemas/MemberSummary'
@@ -1819,6 +1970,19 @@ components:
           type: [object, 'null']
           description: 权限键 → 布尔；null 表示清除全部覆盖
           additionalProperties: { type: boolean }
+        skills:
+          type: array
+          maxItems: 6
+          items: { type: string, minLength: 1, maxLength: 20 }
+          description: 成员职能标签，用于智能分工
+    UpdateMemberSkillsRequest:
+      type: object
+      required: [skills]
+      properties:
+        skills:
+          type: array
+          maxItems: 6
+          items: { type: string, minLength: 1, maxLength: 20 }
 
     Invite:
       type: object
@@ -2166,6 +2330,7 @@ components:
             - ATTACHMENT_ADDED
             - ATTACHMENT_DELETED
             - REPORT_GENERATED
+            - MEMBER_SKILLS_CHANGED
         actor:
           anyOf:
             - type: object
@@ -2401,6 +2566,197 @@ components:
           type: string
           format: date
           description: 必须为周一；缺省=上一周
+
+    PeriodMemberStats:
+      type: object
+      required:
+        [userId, name, role, openTaskCount, overdueTaskCount, blockedTaskCount,
+         completedTaskCount, totalTaskCount]
+      properties:
+        userId: { type: string }
+        name: { type: string }
+        role: { $ref: '#/components/schemas/ProjectRole' }
+        openTaskCount: { type: integer, minimum: 0 }
+        overdueTaskCount: { type: integer, minimum: 0 }
+        blockedTaskCount: { type: integer, minimum: 0 }
+        completedTaskCount: { type: integer, minimum: 0 }
+        totalTaskCount: { type: integer, minimum: 0 }
+
+    PeriodReport:
+      type: object
+      required:
+        [project, period, scope, startDate, endDate, generatedAt, assignee, metrics,
+         summary, activeMemberDetails, completionByMember, highlightTasks,
+         completedTaskList, openTaskList, riskTaskList, upcomingTaskList]
+      properties:
+        project:
+          type: object
+          required: [id, name, color, archived]
+          properties:
+            id: { type: string }
+            name: { type: string }
+            color: { type: string }
+            archived: { type: boolean }
+        period: { type: string, enum: [daily, weekly] }
+        scope: { type: string, enum: [team, member] }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        generatedAt: { type: string, format: date-time }
+        assignee:
+          anyOf:
+            - $ref: '#/components/schemas/MemberSummary'
+            - type: 'null'
+        metrics: { $ref: '#/components/schemas/WeekMetrics' }
+        summary: { type: string }
+        memberStats:
+          type: array
+          items: { $ref: '#/components/schemas/PeriodMemberStats' }
+        unassignedOpenTaskCount: { type: integer, minimum: 0 }
+        activeMemberDetails:
+          type: array
+          items:
+            type: object
+            required: [userId, name, actions]
+            properties:
+              userId: { type: string }
+              name: { type: string }
+              actions: { type: integer, minimum: 0 }
+        completionByMember:
+          type: array
+          items:
+            type: object
+            required: [userId, name, completed]
+            properties:
+              userId: { type: string }
+              name: { type: string }
+              completed: { type: integer, minimum: 0 }
+        highlightTasks:
+          type: array
+          items:
+            type: object
+            required: [taskId, title, completedAt]
+            properties:
+              taskId: { type: string }
+              title: { type: string }
+              completedAt: { type: [string, 'null'], format: date-time }
+        completedTaskList:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/WeekTaskRef' }
+        openTaskList:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/WeekTaskRef' }
+        riskTaskList:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/WeekTaskRef' }
+        upcomingTaskList:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/WeekTaskRef' }
+
+    PeriodReportNarrativeRequest:
+      type: object
+      properties:
+        period: { type: string, enum: [daily, weekly] }
+        date: { type: string, format: date }
+        scope: { type: string, enum: [team, member] }
+        userId: { type: string }
+        tone: { type: string, enum: [concise, detailed] }
+
+    PeriodReportNarrative:
+      type: object
+      required: [narrative, source, model, notice, generatedAt]
+      properties:
+        narrative: { type: string }
+        source: { type: string, enum: [ai, local] }
+        model: { type: [string, 'null'] }
+        notice: { type: [string, 'null'] }
+        generatedAt: { type: string, format: date-time }
+
+    AssignSuggestionsRequest:
+      type: object
+      properties:
+        limit: { type: integer, minimum: 1, maximum: 5 }
+        useAi: { type: boolean }
+
+    AssignSuggestionCandidate:
+      type: object
+      required:
+        [userId, name, avatarUrl, role, skills, openTaskCount, overdueTaskCount,
+         score, skillMatches, reasons]
+      properties:
+        userId: { type: string }
+        name: { type: string }
+        avatarUrl: { type: [string, 'null'] }
+        role: { $ref: '#/components/schemas/ProjectRole' }
+        skills:
+          type: array
+          items: { type: string }
+        openTaskCount: { type: integer, minimum: 0 }
+        overdueTaskCount: { type: integer, minimum: 0 }
+        score: { type: number, minimum: 0, maximum: 100 }
+        skillMatches:
+          type: array
+          items: { type: string }
+        reasons:
+          type: array
+          items: { type: string }
+
+    AssignSuggestions:
+      type: object
+      required: [task, source, model, notice, costNotice, candidates]
+      properties:
+        task:
+          type: object
+          required: [id, title]
+          properties:
+            id: { type: string }
+            title: { type: string }
+        source: { type: string, enum: [ai, local] }
+        model: { type: [string, 'null'] }
+        notice: { type: [string, 'null'] }
+        costNotice: { type: [string, 'null'] }
+        candidates:
+          type: array
+          items: { $ref: '#/components/schemas/AssignSuggestionCandidate' }
+
+    AiPlanRequest:
+      type: object
+      properties:
+        useAi: { type: boolean }
+
+    AiPlanStep:
+      type: object
+      required:
+        [title, reason, suggestedAssigneeId, suggestedAssigneeName, priority, dueInDays,
+         dependsOn]
+      properties:
+        title: { type: string }
+        reason: { type: [string, 'null'] }
+        suggestedAssigneeId: { type: [string, 'null'] }
+        suggestedAssigneeName: { type: [string, 'null'] }
+        priority: { $ref: '#/components/schemas/TaskPriority' }
+        dueInDays:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 30
+        dependsOn:
+          type: array
+          items: { type: integer, minimum: 0 }
+
+    AiPlan:
+      type: object
+      required: [steps, source, model, notice]
+      properties:
+        steps:
+          type: array
+          maxItems: 6
+          items: { $ref: '#/components/schemas/AiPlanStep' }
+        source: { type: string, enum: [ai, local] }
+        model: { type: [string, 'null'] }
+        notice: { type: [string, 'null'] }
 
     NotificationType:
       type: string

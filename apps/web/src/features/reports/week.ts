@@ -15,6 +15,15 @@ export function currentWeekStart(now: Date = new Date()): string {
   return monday.toISOString().slice(0, 10);
 }
 
+export function currentDateKey(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
 export function formatWeekRange(weekStart: string, weekEnd: string): string {
   return `${formatDate(weekStart)} - ${formatDate(weekEnd)}`;
 }

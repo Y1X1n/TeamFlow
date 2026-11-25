@@ -38,6 +38,7 @@ export interface MemberSummary {
   name: string;
   avatarUrl: string | null;
   role: ProjectRole;
+  skills?: string[];
 }
 
 export interface Member extends MemberSummary {
@@ -344,4 +345,86 @@ export interface MyPermissions {
   permissions: string[];
   overrides: Record<string, boolean> | null;
   archived: boolean;
+}
+
+export type ReportPeriod = 'daily' | 'weekly';
+export type ReportScope = 'team' | 'member';
+
+export interface PeriodMemberStats {
+  userId: string;
+  name: string;
+  role: ProjectRole;
+  openTaskCount: number;
+  overdueTaskCount: number;
+  blockedTaskCount: number;
+  completedTaskCount: number;
+  totalTaskCount: number;
+}
+
+export interface PeriodReport {
+  project: { id: string; name: string; color: string; archived: boolean };
+  period: ReportPeriod;
+  scope: ReportScope;
+  startDate: string;
+  endDate: string;
+  generatedAt: string;
+  assignee: MemberSummary | null;
+  metrics: WeekMetrics;
+  summary: string;
+  memberStats?: PeriodMemberStats[];
+  unassignedOpenTaskCount?: number;
+  activeMemberDetails: Array<{ userId: string; name: string; actions: number }>;
+  completionByMember: Array<{ userId: string; name: string; completed: number }>;
+  highlightTasks: Array<{ taskId: string; title: string; completedAt: string | null }>;
+  completedTaskList: WeekTaskRef[];
+  openTaskList: WeekTaskRef[];
+  riskTaskList: WeekTaskRef[];
+  upcomingTaskList: WeekTaskRef[];
+}
+
+export interface PeriodReportNarrative {
+  narrative: string;
+  source: 'ai' | 'local';
+  model: string | null;
+  notice: string | null;
+  generatedAt: string;
+}
+
+export interface AssignSuggestionCandidate {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+  role: ProjectRole;
+  skills: string[];
+  openTaskCount: number;
+  overdueTaskCount: number;
+  score: number;
+  skillMatches: string[];
+  reasons: string[];
+}
+
+export interface AssignSuggestionsResult {
+  task: { id: string; title: string };
+  source: 'ai' | 'local';
+  model: string | null;
+  notice: string | null;
+  costNotice: string | null;
+  candidates: AssignSuggestionCandidate[];
+}
+
+export interface AiPlanStep {
+  title: string;
+  reason: string | null;
+  suggestedAssigneeId: string | null;
+  suggestedAssigneeName: string | null;
+  priority: TaskPriority;
+  dueInDays: number | null;
+  dependsOn: number[];
+}
+
+export interface AiPlanResult {
+  steps: AiPlanStep[];
+  source: 'ai' | 'local';
+  model?: string;
+  notice?: string;
 }

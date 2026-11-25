@@ -45,6 +45,7 @@ erDiagram
       string user_id FK
       enum role
       json permission_overrides
+      string[] skills
       datetime joined_at
     }
     Task {
@@ -122,6 +123,8 @@ enum ActivityType {
 }
 ```
 
+> 上述枚举为 v1.0 基线；v1.1–v1.7 的追加值见 §9.2（NotificationType）、§10.2 / §11.2 / §13.1（ActivityType，含 `MEMBER_SKILLS_CHANGED`）。
+
 ## 3. 表字典
 
 ### 3.1 users
@@ -176,10 +179,11 @@ enum ActivityType {
 | user_id              | text        | FK → users, ON DELETE CASCADE    |                                               |
 | role                 | ProjectRole | NOT NULL, DEFAULT MEMBER         | OWNER 唯一性由服务层保证                      |
 | permission_overrides | jsonb       | NULL                             | `{"action": boolean}`，仅对 17 项目录中键有效 |
+| skills               | text[]      | NOT NULL, DEFAULT `{}`           | 职能标签；≤6 个，每个 1–20 字符（服务层校验） |
 | joined_at            | timestamptz | NOT NULL                         |                                               |
 
 约束：`UNIQUE (project_id, user_id)`；索引：`(user_id)`。
-业务不变量：每个项目恰好 1 条 `role=OWNER`；OWNER 的 `permission_overrides` 必须为 NULL。
+业务不变量：每个项目恰好 1 条 `role=OWNER`；OWNER 的 `permission_overrides` 必须为 NULL；`skills` 缺省为空数组，服务层负责去重与长度限制。
 
 ### 3.5 project_invites
 
@@ -314,6 +318,8 @@ enum ActivityType {
 
 约束：`UNIQUE (project_id, week_start)` — 重复生成执行 upsert。
 
+> 周期报告（日报/周报/成员报告）按需实时计算，不写入本表；本表仅保存周一的周报快照。详见 §13。
+
 > 实时看板不单独建表：Yjs 文档是 `board_columns` + `tasks` 的内存投影，随连接重建，不持久化二进制快照（决策见 ARCHITECTURE ADR-003/008）。
 
 ## 4. Activity payload 约定
@@ -330,6 +336,7 @@ enum ActivityType {
 | `MEMBER_JOINED`                          | `{"userId":"...","name":"...","role":"MEMBER"}`                                                              |
 | `MEMBER_ROLE_CHANGED`                    | `{"userId":"...","from":"MEMBER","to":"ADMIN"}`                                                              |
 | `MEMBER_PERMISSIONS_CHANGED`             | `{"userId":"...","overrides":{"board:manage":true}}`                                                         |
+| `MEMBER_SKILLS_CHANGED`                  | `{"userId":"...","skills":["前端","设计"]}`                                                                  |
 | `COLUMN_CREATED` / `UPDATED` / `DELETED` | `{"columnId":"...","name":"..."}`                                                                            |
 | `PROJECT_CREATED`                        | `{"name":"..."}`                                                                                             |
 | `REPORT_GENERATED`                       | `{"reportId":"...","weekStart":"2026-11-16"}`                                                                |
@@ -379,17 +386,20 @@ payload 不允许包含密码、访问令牌、完整文件内容。例外：`IN
 
 ## 8. 与 API 契约的映射
 
-| API 资源                    | 表                               | 备注                                   |
-| --------------------------- | -------------------------------- | -------------------------------------- |
-| `/auth/*`、`/users/me`      | users, refresh_tokens            | 不返回 password_hash                   |
-| `/projects/*`               | projects, project_members        | 项目详情返回成员摘要                   |
-| `/projects/{id}/board`      | projects, board_columns, tasks   | 单次返回列 + 未删除任务                |
-| `/tasks/*/comments`         | task_comments                    | 软删记录保留占位                       |
-| `/tasks/*/attachments`      | attachments                      | 下载 302 签名 URL                      |
-| `/notifications/*`          | notifications                    | 未读数来自 count(read_at IS NULL)      |
-| `/projects/{id}/activities` | activities                       | 游标：`(created_at,id)` 倒序           |
-| `/projects/{id}/reports`    | weekly_reports                   | 周起始日唯一                           |
-| WS `/collab`                | board_columns, tasks（只读重建） | 看板投影 + awareness；不落库、不持久化 |
+| API 资源                         | 表                                                | 备注                                    |
+| -------------------------------- | ------------------------------------------------- | --------------------------------------- |
+| `/auth/*`、`/users/me`           | users, refresh_tokens                             | 不返回 password_hash                    |
+| `/projects/*`                    | projects, project_members                         | 项目详情返回成员摘要                    |
+| `/projects/{id}/board`           | projects, board_columns, tasks                    | 单次返回列 + 未删除任务                 |
+| `/tasks/*/comments`              | task_comments                                     | 软删记录保留占位                        |
+| `/tasks/*/attachments`           | attachments                                       | 下载 302 签名 URL                       |
+| `/notifications/*`               | notifications                                     | 未读数来自 count(read_at IS NULL)       |
+| `/projects/{id}/activities`      | activities                                        | 游标：`(created_at,id)` 倒序            |
+| `/projects/{id}/reports`         | weekly_reports                                    | 周起始日唯一                            |
+| `/projects/{id}/reports/period`  | tasks, task_comments, activities, project_members | 实时计算，不落库；无报告表              |
+| `/tasks/{id}/assign-suggestions` | tasks, project_members                            | 只读；`project_members.skills` 参与评分 |
+| `/tasks/{id}/ai-plan`            | tasks, project_members                            | 只读；结果由客户端确认后写任务          |
+| WS `/collab`                     | board_columns, tasks（只读重建）                  | 看板投影 + awareness；不落库、不持久化  |
 
 ## 9. v1.1 数据扩展
 
@@ -481,3 +491,29 @@ payload 不允许包含密码、访问令牌、完整文件内容。例外：`IN
 - 无新增表/字段。`users.avatar_url` 可保存 http(s) URL 或 256×256 压缩图片 data URL（PNG/JPEG/WebP，≤100000 字符）。
 - 修改密码更新 `users.password_hash`，并在同一事务删除该用户全部 `refresh_tokens`。
 - 无新迁移；头像压缩在前端完成，服务端只校验格式/长度，不解析图片。
+
+## 13. v1.5–v1.7 报告与智能分工扩展
+
+### 13.1 变更字段
+
+- `project_members.skills`：`TEXT[] NOT NULL DEFAULT '{}'`，成员职能标签；应用层限制最多 6 个、每个 1–20 字符、去重、禁止换行。
+- `ActivityType` 新增 `MEMBER_SKILLS_CHANGED`；payload 为 `{"userId":"...","skills":["前端","设计"]}`。
+- 更新成员自身/他人职能标签时写该活动，并发布 `project.member.changed` 实时事件。
+
+### 13.2 报告数据
+
+- 日报/周报/成员报告（`GET /projects/{projectId}/reports/period`）按需实时计算：**不新增报告表**，也不写 `weekly_reports`。
+- 计算复用既有报告采集逻辑：任务、评论与活动均为只读查询；完成/新增按日期区间，进行中/逾期/阻塞/即将到期按当前状态。
+- `weekly_reports` 结构与 v1.3 保持一致，仅保存周报快照；历史快照不因周期报告的日期查询而改变。
+- 无每日快照表；不重建历史日期的任务状态。
+
+### 13.3 智能分工与 AI 计划
+
+- 指派建议（`POST /tasks/{taskId}/assign-suggestions`）与 AI 拆解/分工（`POST /tasks/{taskId}/ai-plan`）均为只读计算，不落库。
+- 建议结果由客户端确认后通过既有任务/依赖接口写入；数据库不保存推荐分数或 AI 会话。
+- 无新增队列表；不改变通知、活动与报告生成的后台任务。
+
+### 13.4 迁移
+
+- `20261125142207_v1_6_member_skills`（`project_members.skills` + `ActivityType.MEMBER_SKILLS_CHANGED`）
+- v1.5 与 v1.7 无数据库迁移。

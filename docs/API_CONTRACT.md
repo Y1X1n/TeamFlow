@@ -451,3 +451,158 @@ TaskCard 新增 `subtaskTotal/subtaskDone`；TaskDetail 新增 `subtasks/watchin
 | 版本  | 日期       | 变更                                                       |
 | ----- | ---------- | ---------------------------------------------------------- |
 | 1.4.0 | 2026-11-23 | 账号设置页、头像裁剪上传、昵称修改、修改密码（共 72 操作） |
+
+## 12. v1.5 团队/成员日报周报
+
+### 周期报告
+
+| 方法 | 路径                                             | 所需权限                                                | 说明                                  |
+| ---- | ------------------------------------------------ | ------------------------------------------------------- | ------------------------------------- |
+| GET  | `/projects/{projectId}/reports/period`           | `report:view`；团队或他人报告另需有效 `report:generate` | 按日/周实时计算团队或成员报告，不落库 |
+| POST | `/projects/{projectId}/reports/period/narrative` | 同上                                                    | 生成 AI 叙述与建议；失败回退本地模板  |
+
+**查询参数（GET）**
+
+| 参数     | 类型              | 缺省                                            | 说明                                                 |
+| -------- | ----------------- | ----------------------------------------------- | ---------------------------------------------------- |
+| `period` | `daily \| weekly` | `weekly`                                        | 日报或周报                                           |
+| `date`   | `YYYY-MM-DD`      | 今天 / 本周一（Asia/Shanghai）                  | 周报会归一到所在周周一                               |
+| `scope`  | `team \| member`  | 有 `report:generate` 时为 `team`，否则 `member` | 团队或成员视角                                       |
+| `userId` | string            | 当前用户                                        | 仅 `scope=member` 使用；团队视角携带该参数返回 `400` |
+
+**请求体（POST narrative）**
+
+`{ period?, date?, scope?, userId?, tone? }`；`tone` 为 `concise | detailed`，缺省 `concise`。除 `tone` 外其余字段语义与 GET 查询参数一致。
+
+**权限与错误语义**
+
+- 成员查看**自己的**报告需要 `report:view`；查看团队报告或**其他成员**报告在 `report:view` 基础上另需有效 `report:generate`（默认 OWNER/ADMIN，可通过成员权限覆盖调整）。
+- 非项目成员访问返回 `404 NOT_FOUND`（不泄露项目存在性）；目标 `userId` 不是项目成员返回 `404`。
+- `scope=team` 且携带 `userId` 返回 `400 VALIDATION_ERROR`。
+- 归档项目：GET 报告允许读取；POST narrative 由权限守卫（`PermissionGuard`）返回 `409 PROJECT_ARCHIVED`。
+- 本组端点不产生新的稳定错误码，复用既有 `400/401/403/404/409/429`。
+
+**响应字段（PeriodReport）**
+
+| 字段                                 | 类型                | 说明                                                                                                                          |
+| ------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `project`                            | object              | `{id,name,color,archived}`                                                                                                    |
+| `period` / `scope`                   | enum                | `daily \| weekly`；`team \| member`                                                                                           |
+| `startDate` / `endDate`              | date                | 统计区间起止（含端点）                                                                                                        |
+| `generatedAt`                        | datetime            | 本次实时计算时间                                                                                                              |
+| `assignee`                           | MemberSummary\|null | 成员报告的目标成员；团队报告为 `null`                                                                                         |
+| `metrics`                            | object              | 见下方指标表                                                                                                                  |
+| `summary`                            | string              | 基于指标与风险生成的确定性摘要                                                                                                |
+| `memberStats`                        | array               | **仅团队报告**；每成员 `{userId,name,role,openTaskCount,overdueTaskCount,blockedTaskCount,completedTaskCount,totalTaskCount}` |
+| `unassignedOpenTaskCount`            | integer             | **仅团队报告**；当前未指派且未完成的任务数                                                                                    |
+| `activeMemberDetails`                | array               | 区间内有写操作的成员 `{userId,name,actions}`，最多 10 条                                                                      |
+| `completionByMember`                 | array               | 区间内完成数排行 `{userId,name,completed}`                                                                                    |
+| `highlightTasks`                     | array               | 区间内完成亮点 `{taskId,title,completedAt}`，最多 5 条                                                                        |
+| `completedTaskList` / `openTaskList` | array               | 完成 / 当前待推进任务，各最多 10 条                                                                                           |
+| `riskTaskList` / `upcomingTaskList`  | array               | 风险（逾期/依赖阻塞）/ 7 天内到期，各最多 10 条                                                                               |
+
+**metrics**
+
+`createdTasks`、`completedTasks`、`activeTasks`、`overdueTasks`、`blockedTasks`、`comments`、`activeMembers`、`totalTasks`。
+
+**统计口径**
+
+- `createdTasks` / `completedTasks` 按所选日期区间统计（任务创建时间、`completedAt`）。
+- `activeTasks`、`overdueTasks`、`blockedTasks`、`upcomingTaskList` 表示**当前状态**，不按历史日期重建；历史日期的报告不会还原当日快照。
+- 成员报告按 `assigneeId` 过滤任务；成员评论数按 `authorId` 统计、成员活跃度按活动 `actorId` 统计。
+- 不写库、不发通知；每次请求实时计算（live on-demand）。
+
+**叙述响应（PeriodReportNarrative）**
+
+| 字段          | 类型           | 说明                         |
+| ------------- | -------------- | ---------------------------- |
+| `narrative`   | string         | AI 或本地模板生成的叙述      |
+| `source`      | `ai \| local`  | 实际来源                     |
+| `model`       | string \| null | AI 模型名；本地回退为 `null` |
+| `notice`      | string \| null | 回退/提示信息                |
+| `generatedAt` | datetime       | 生成时间                     |
+
+- AI 只撰写叙述与建议；指标、任务列表与摘要事实由服务端确定性计算。
+- 未配置 AI 或调用失败时返回 `source=local` 并在 `notice` 说明；限流 10 次/分钟（`429 RATE_LIMITED`）。
+- 不写库、不发通知、不发邮件。
+
+### v1.5 版本记录
+
+| 版本  | 日期       | 变更                                                          |
+| ----- | ---------- | ------------------------------------------------------------- |
+| 1.5.0 | 2026-11-25 | 团队/成员日报与周报、AI 报告叙述（新增 2 个端点，共 74 操作） |
+
+## 13. v1.6 成员职能与智能分工
+
+### 成员职能标签
+
+| 方法  | 路径                                      | 所需权限         | 说明                                           |
+| ----- | ----------------------------------------- | ---------------- | ---------------------------------------------- |
+| PATCH | `/projects/{projectId}/members/me/skills` | 项目成员（本人） | 更新自己的职能标签；归档项目 `409`             |
+| PATCH | `/projects/{projectId}/members/{userId}`  | `member:manage`  | 新增可选 `skills`；沿用 OWNER/ADMIN 不可变规则 |
+| GET   | `/projects/{projectId}/members`           | 项目成员         | 返回成员 `skills`                              |
+| POST  | `/tasks/{taskId}/assign-suggestions`      | `task:assign`    | 智能推荐负责人；限流 10 次/分钟；不写库        |
+
+**skills 规则**
+
+- `string[]`，默认 `[]`；最多 6 个、每个 1–20 字符；服务端 trim、去重、拒绝换行。
+- 成员可编辑自己的标签；OWNER/ADMIN 通过 `member:manage` 编辑他人标签。OWNER 不可被修改、ADMIN 不能管理其他 ADMIN（沿用既有 `409 OWNER_IMMUTABLE` / `409 ADMIN_CANNOT_MANAGE_ADMIN`）。
+- 变更写入 `MEMBER_SKILLS_CHANGED` 活动并发布 `project.member.changed` 实时事件。
+- 归档项目写操作返回 `409 PROJECT_ARCHIVED`。
+
+**指派建议请求**
+
+`{ limit?: 1..5, useAi?: boolean }`；`limit` 缺省 3。`useAi=false` 时只使用本地规则。
+
+**指派建议响应（AssignSuggestions）**
+
+| 字段                          | 说明                                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------------- |
+| `task`                        | `{id,title}`                                                                                    |
+| `source` / `model` / `notice` | `ai \| local`、模型名、回退提示                                                                 |
+| `costNotice`                  | AI 费用提示                                                                                     |
+| `candidates[]`                | `{userId,name,avatarUrl,role,skills,openTaskCount,overdueTaskCount,score,skillMatches,reasons}` |
+
+- 候选仅包含非 VIEWER 的项目成员；规则评分为「职能匹配 40% + 当前负载 30% + 截止压力 20% + 同标签历史 10%」。
+- AI 只做语义排序与理由增强，候选人由服务端校验；未配置或失败时回退本地规则，`source=local`。
+- 端点从不写库、不自动指派；客户端确认后调用既有 `PATCH /tasks/{taskId}` 传 `assigneeId`。
+- 速率限制 10 次/分钟；归档项目 `409`，任务不存在/已删除 `404`，非成员 `404`；不引入新的稳定错误码，复用既有 `400/401/403/404/409/429`。
+
+### v1.6 版本记录
+
+| 版本  | 日期       | 变更                                                      |
+| ----- | ---------- | --------------------------------------------------------- |
+| 1.6.0 | 2026-11-25 | 成员职能标签、智能负责人推荐（新增 2 个端点，共 76 操作） |
+
+## 14. v1.7 AI 拆解与任务分工
+
+| 方法 | 路径                      | 所需权限      | 说明                                               |
+| ---- | ------------------------- | ------------- | -------------------------------------------------- |
+| POST | `/tasks/{taskId}/ai-plan` | `task:update` | 生成 1–6 步拆解与分工建议；限流 10 次/分钟；不写库 |
+
+- 既有 `POST /tasks/{taskId}/ai-breakdown` 契约不变；前端改为先预览、可编辑，再创建子任务。
+- `ai-plan` 请求体：`{ useAi?: boolean }`；`useAi=false` 时使用本地规则。
+
+**响应步骤（AiPlanStep）**
+
+| 字段                              | 说明                                                |
+| --------------------------------- | --------------------------------------------------- |
+| `title`                           | 步骤标题（1–120 字符，前端按任务标题上限校验）      |
+| `reason`                          | 建议理由，可空                                      |
+| `suggestedAssigneeId` / `...Name` | 建议负责人，可空；必须为项目成员且不能是 VIEWER     |
+| `priority`                        | `LOW \| MEDIUM \| HIGH \| URGENT`                   |
+| `dueInDays`                       | 建议截止天数，`1–30` 或 `null`                      |
+| `dependsOn`                       | 仅允许指向**更早步骤**的索引数组，防止循环/前向依赖 |
+
+**响应（AiPlan）**：`{ steps: AiPlanStep[], source: ai|local, model: string|null, notice: string|null }`。
+
+- 服务端清洗建议：无效负责人置 `null`（只接受项目成员且排除 VIEWER）、优先级非法回退 `MEDIUM`、`dueInDays` 收敛到 `1–30`、`dependsOn` 仅保留更早索引。
+- 未配置 AI 或失败时回退本地规则：按当前负载（进行中任务 + 逾期加权）从轻到重轮询分配成员；任务标签命中成员技能时优先该成员；`source=local`。
+- 端点不写任务、不写依赖；前端预览确认后通过既有 `POST /projects/{projectId}/tasks` 创建任务、`POST /tasks/{taskId}/dependencies` 创建依赖，并展示部分失败结果。
+- 归档项目 `409`，任务不存在/已删除 `404`，限流 `429`；不引入新的稳定错误码。
+
+### v1.7 版本记录
+
+| 版本  | 日期       | 变更                                                        |
+| ----- | ---------- | ----------------------------------------------------------- |
+| 1.7.0 | 2026-11-25 | AI 拆解预览/编辑与任务分工建议（新增 1 个端点，共 77 操作） |

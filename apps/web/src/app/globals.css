@@ -69,6 +69,66 @@
 .rich-text .mention {
   @apply rounded bg-indigo-50 px-1 font-medium text-indigo-600;
 }
+
+.report-markdown {
+  @apply overflow-x-auto text-sm leading-6 text-foreground;
+}
+.report-markdown > :first-child {
+  margin-top: 0;
+}
+.report-markdown h1 {
+  @apply mb-3 mt-0 text-xl font-semibold tracking-tight;
+}
+.report-markdown h2 {
+  @apply mb-2 mt-6 border-b border-border pb-1.5 text-lg font-semibold;
+}
+.report-markdown h3 {
+  @apply mb-2 mt-4 text-base font-semibold;
+}
+.report-markdown p {
+  @apply my-2;
+}
+.report-markdown ul {
+  @apply my-2 list-disc space-y-1 pl-5;
+}
+.report-markdown ol {
+  @apply my-2 list-decimal space-y-1 pl-5;
+}
+.report-markdown li > p {
+  @apply my-0;
+}
+.report-markdown blockquote {
+  @apply my-3 border-l-4 border-primary/40 bg-primary/5 px-3 py-2 text-muted-foreground;
+}
+.report-markdown hr {
+  @apply my-4 border-border;
+}
+.report-markdown a {
+  @apply text-primary underline-offset-2 hover:underline;
+}
+.report-markdown code {
+  @apply rounded bg-muted px-1 py-0.5 font-mono text-xs;
+}
+.report-markdown pre {
+  @apply my-3 overflow-x-auto rounded-lg bg-muted p-3;
+}
+.report-markdown pre code {
+  @apply bg-transparent p-0;
+}
+.report-markdown table {
+  @apply my-3 w-full border-collapse text-sm;
+}
+.report-markdown th,
+.report-markdown td {
+  @apply border border-border px-2.5 py-1.5 text-left align-top;
+}
+.report-markdown th {
+  @apply bg-muted/50 font-medium;
+}
+.report-markdown td[align='right'],
+.report-markdown th[align='right'] {
+  @apply text-right;
+}
 .tiptap p.is-editor-empty:first-child::before {
   @apply pointer-events-none float-left h-0 text-muted-foreground;
   content: attr(data-placeholder);

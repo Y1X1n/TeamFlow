@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, CalendarClock, ListTodo, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CalendarClock, FileText, ListTodo, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { PriorityBadge } from '@/features/tasks/priority-badge';
@@ -173,7 +173,18 @@ export function MyTasksPage() {
                       {group.project.name}
                     </Link>
                   </div>
-                  <span className="text-xs text-muted-foreground">{group.tasks.length} 项任务</span>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/projects/${group.project.id}/reports?scope=member&period=daily`}
+                      className="inline-flex items-center gap-1 rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                      日报/周报
+                    </Link>
+                    <span className="text-xs text-muted-foreground">
+                      {group.tasks.length} 项任务
+                    </span>
+                  </div>
                 </div>
                 <ul className="divide-y divide-border">
                   {group.tasks.map((task) => {

@@ -8,13 +8,14 @@ import { toast } from 'sonner';
 import { SUBTASK_MAX_PER_TASK, SUBTASK_TITLE_MAX_LENGTH } from '@teamflow/shared/enums';
 import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
-import type { AiBreakdown, AiStatus, Subtask } from '@/lib/types';
+import type { Subtask } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { TaskAiDialog } from './task-ai-dialog';
 import { getErrorMessage } from './task-utils';
 
 interface TaskSubtasksProps {
@@ -30,14 +31,6 @@ interface SubtasksResponse {
   progress: { total: number; done: number };
 }
 
-interface BreakdownRun {
-  result: AiBreakdown;
-  created: number;
-  failed: number;
-}
-
-const AI_BREAKDOWN_LIMIT = 6;
-
 export function TaskSubtasks({
   taskId,
   projectId,
@@ -49,9 +42,6 @@ export function TaskSubtasks({
   const [draft, setDraft] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Subtask | null>(null);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
-  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
-  const [aiStatusError, setAiStatusError] = useState<string | null>(null);
-  const [aiStatusLoading, setAiStatusLoading] = useState(false);
 
   const subtasksQuery = useQuery<SubtasksResponse, Error>({
     queryKey: queryKeys.subtasks(taskId),
@@ -123,53 +113,6 @@ export function TaskSubtasks({
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
-  const breakdown = useMutation<BreakdownRun, Error, void>({
-    mutationFn: async () => {
-      const result = await api<AiBreakdown>(`/tasks/${taskId}/ai-breakdown`, { method: 'POST' });
-      const titles = result.subtasks.slice(0, AI_BREAKDOWN_LIMIT);
-      let created = 0;
-      let failed = 0;
-      for (const title of titles) {
-        try {
-          await api<Subtask>(`/tasks/${taskId}/subtasks`, { method: 'POST', body: { title } });
-          created += 1;
-        } catch {
-          failed += 1;
-        }
-      }
-      return { result, created, failed };
-    },
-    onSuccess: ({ result, created, failed }) => {
-      setAiDialogOpen(false);
-      invalidateAll();
-      if (created === 0) {
-        toast.error('未能添加子任务，请稍后重试');
-        return;
-      }
-      const sourceLabel = result.source === 'ai' ? 'AI' : '本地规则';
-      const description = result.notice ?? (failed > 0 ? `${failed} 个子任务添加失败` : undefined);
-      toast.success(`已拆解并添加 ${created} 个子任务（来源：${sourceLabel}）`, {
-        description,
-      });
-    },
-    onError: (error) => toast.error(getErrorMessage(error)),
-  });
-
-  const openAiDialog = async () => {
-    setAiStatus(null);
-    setAiStatusError(null);
-    setAiStatusLoading(true);
-    try {
-      const status = await api<AiStatus>('/ai/status');
-      setAiStatus(status);
-    } catch (error) {
-      setAiStatusError(getErrorMessage(error));
-    } finally {
-      setAiStatusLoading(false);
-      setAiDialogOpen(true);
-    }
-  };
-
   const handleAdd = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const title = draft.trim();
@@ -184,17 +127,7 @@ export function TaskSubtasks({
     addSubtask.mutate(title);
   };
 
-  const aiDialogDescription = aiStatus
-    ? aiStatus.enabled
-      ? `将调用模型 ${aiStatus.model ?? '已配置模型'} 生成最多 ${AI_BREAKDOWN_LIMIT} 个可执行子任务。${
-          aiStatus.costNotice ?? '调用将发送任务标题与描述，可能产生费用。'
-        }`
-      : '当前未配置 AI 服务，将使用本地规则生成子任务，不会产生外部调用费用。'
-    : aiStatusError
-      ? `无法获取 AI 状态（${aiStatusError}）。确认后将尝试生成，若 AI 不可用会自动回退到本地规则。`
-      : '正在获取 AI 状态…';
-
-  const aiButtonDisabled = archived || !canUpdate || aiStatusLoading || breakdown.isPending;
+  const aiButtonDisabled = archived || !canUpdate;
 
   return (
     <section aria-labelledby="subtasks-heading">
@@ -211,14 +144,10 @@ export function TaskSubtasks({
           variant="outline"
           size="sm"
           disabled={aiButtonDisabled}
-          aria-busy={aiStatusLoading || breakdown.isPending}
-          onClick={() => void openAiDialog()}
+          aria-haspopup="dialog"
+          onClick={() => setAiDialogOpen(true)}
         >
-          {aiStatusLoading || breakdown.isPending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-          ) : (
-            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
+          <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
           AI 拆解
         </Button>
       </div>
@@ -361,16 +290,14 @@ export function TaskSubtasks({
         }}
       />
 
-      <ConfirmDialog
+      <TaskAiDialog
         open={aiDialogOpen}
-        onOpenChange={(open) => {
-          if (!open && !breakdown.isPending) setAiDialogOpen(false);
-        }}
-        title="AI 拆解子任务"
-        description={`为「${taskTitle}」${aiDialogDescription} 生成结果会逐个创建为子任务。`}
-        confirmLabel="生成子任务"
-        loading={breakdown.isPending}
-        onConfirm={() => breakdown.mutate()}
+        onOpenChange={setAiDialogOpen}
+        taskId={taskId}
+        projectId={projectId}
+        taskTitle={taskTitle}
+        canUpdate={canUpdate}
+        archived={archived}
       />
     </section>
   );

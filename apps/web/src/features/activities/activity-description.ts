@@ -68,6 +68,17 @@ export function describeActivity(
     }
     case 'MEMBER_PERMISSIONS_CHANGED':
       return { text: `更新了 ${memberName(names, payload)} 的权限覆盖` };
+    case 'MEMBER_SKILLS_CHANGED': {
+      const skills = Array.isArray(payload.skills)
+        ? payload.skills.filter(
+            (skill): skill is string => typeof skill === 'string' && skill.trim().length > 0,
+          )
+        : [];
+      return {
+        text: `更新了 ${memberName(names, payload)} 的职能标签`,
+        meta: skills.length > 0 ? `职能：${skills.join('、')}` : '已清空职能标签',
+      };
+    }
     case 'COLUMN_CREATED': {
       const name = readString(payload, 'name') ?? '未命名列';
       return { text: `新建了看板列${quote(name)}` };

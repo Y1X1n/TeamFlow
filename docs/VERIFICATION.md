@@ -283,3 +283,72 @@
 - 头像更换后已缓存的任务/评论卡片需重新进入页面或失效查询后刷新。
 
 **v1.4 验收签署：通过。**
+
+## 14. 本期新增待验证（v1.5–v1.7）
+
+> 状态：**已执行（2026-11-25）**。实际结果见 14.4；AI 已通过本地 OpenAI 兼容代理实测，未配置/失败时回退本地规则。
+
+### 14.1 验证项
+
+| #   | 范围 | 待验证内容                                                                                                                                | 状态 |
+| --- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| 1   | v1.5 | `GET /projects/{projectId}/reports/period` 支持 daily/weekly、date 归一与 team/member 范围；缺省 scope 按 `report:generate` 判定          | 通过 |
+| 2   | v1.5 | 本人报告 `report:view` 可读；团队/他人报告需 `report:view` + `report:generate`；非成员 404、team+userId 400、目标非成员 404               | 通过 |
+| 3   | v1.5 | 归档项目 GET 报告可读取；POST narrative 返回 409                                                                                          | 通过 |
+| 4   | v1.5 | 新增/完成按日期区间，进行中/逾期/阻塞/即将到期按当前状态；成员评论按 authorId、活跃度按 actorId                                           | 通过 |
+| 5   | v1.5 | 团队报告含 memberStats 与 unassignedOpenTaskCount；四类任务列表各 ≤10，highlight ≤5，activeMemberDetails ≤10                              | 通过 |
+| 6   | v1.5 | 前端「报告」页签、日报/周报、团队/我的报告、负责人成员选择、Markdown 预览、`.md` 与可打印 `.html` 导出、我的任务链接                      | 通过 |
+| 7   | v1.5 | 叙述端点：AI 配置时 `source=ai`；未配置/失败时 `source=local` 且有 notice；限流 10 次/分钟返回 429；不写库                                | 通过 |
+| 8   | v1.6 | `project_members.skills` 默认空数组；最多 6 个、每个 1–20 字符、去重、拒绝换行；`20261125142207_v1_6_member_skills` 可部署                | 通过 |
+| 9   | v1.6 | 成员可改本人标签；负责人经 `member:manage` 改他人标签；OWNER 不可变、ADMIN 不能管理 ADMIN；归档写操作 409                                 | 通过 |
+| 10  | v1.6 | `MEMBER_SKILLS_CHANGED` 活动写入；成员列表返回 skills；保存后 UI 即时更新                                                                 | 通过 |
+| 11  | v1.6 | `POST /tasks/{taskId}/assign-suggestions` 需 `task:assign`；排除 VIEWER；limit 1–5；评分权重 40/30/20/10；不写任务                        | 通过 |
+| 12  | v1.6 | 推荐 AI 可选：未配置/失败 `source=local`；限流 10 次/分钟 429；确认后经 `PATCH /tasks/{taskId}` 指派                                      | 通过 |
+| 13  | v1.7 | AI 对话框「子任务清单 / 任务分工」切换；生成结果先预览、可编辑、可选择，确认前不创建任何内容                                              | 通过 |
+| 14  | v1.7 | `POST /tasks/{taskId}/ai-plan` 需 `task:update`；步骤 1–6；负责人成员校验与 VIEWER 排除；优先级枚举、dueInDays 1–30、dependsOn 仅更早步骤 | 通过 |
+| 15  | v1.7 | 本地回退按当前负载轮询分配；`source=local` 有提示；端点不写任务/依赖；限流 10 次/分钟 429；归档 409                                       | 通过 |
+| 16  | v1.7 | 确认后经既有任务/依赖端点创建；部分失败逐项提示；成功项不被回滚                                                                           | 通过 |
+| 17  | 全局 | 无新增报告表/队列表；`weekly_reports` 结构与 v1.3 一致；OpenAPI 与实现字段一致                                                            | 通过 |
+
+### 14.2 建议命令
+
+| 目的       | 命令                                                                                                                                                               |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 应用迁移   | `pnpm --filter @teamflow/api db:deploy`（开发可用 `db:migrate`）                                                                                                   |
+| API 单测   | `pnpm --filter @teamflow/api test`（含 `reports/period.spec.ts`、`report-summary.spec.ts`、`assignments/*.spec.ts`、`ai.service.spec.ts`、`ai/task-plan.spec.ts`） |
+| API E2E    | `pnpm --filter @teamflow/api test:e2e`（需 PostgreSQL；含 `report-period.e2e-spec.ts`、`assignment-suggestions.e2e-spec.ts`、`ai-plan.e2e-spec.ts`）               |
+| Web 单测   | `pnpm --filter @teamflow/web test`（含报告文档、成员职能、任务计划纯函数测试）                                                                                     |
+| Playwright | `pnpm --filter @teamflow/web test:e2e`（需 Web/API 运行且已 seed）                                                                                                 |
+| 质量门禁   | `pnpm lint`、`pnpm typecheck`、`pnpm build`                                                                                                                        |
+| 契约校验   | `pnpm openapi:lint`                                                                                                                                                |
+| 文档格式   | `pnpm exec prettier --check docs/API_CONTRACT.md docs/PRD.md docs/DATA_MODEL.md docs/ARCHITECTURE.md README.md docs/VERIFICATION.md`                               |
+
+### 14.3 手工验收提示
+
+- AI 真实调用需自备 `AI_BASE_URL/AI_API_KEY/AI_MODEL`；未配置时记录 `source=local` 与 notice，配置后记录 `source=ai`；不得以未联网结果声称 AI 已验收。
+- 验收前确认 `POST /tasks/{taskId}/ai-plan` 的后端实现（`AiController` + `TaskPlanService`）已合入；该端点返回建议，不创建任务或依赖。
+- 归档项目分别验证 GET 报告可读、POST 叙述 409；不要将归档读能力误判为写能力。
+- 推荐/分工端点只读：调用前后任务负责人、任务数量与依赖关系应保持不变。
+- 前端导出需人工核对 `.md` 与可打印 `.html` 的内容一致，且 HTML 不依赖应用会话即可打开。
+- 迁移验证只需关注 `project_members.skills` 与 `ActivityType.MEMBER_SKILLS_CHANGED`；不应出现新的报告表或队列表。
+
+### 14.4 实际执行结果（2026-11-25）
+
+| 检查项      | 结果                                                                                                                                                                          |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenAPI     | `pnpm openapi:lint` 通过；仅保留 3 条既有 warning（license、302 下载、health 无 4xx），无新增契约错误                                                                         |
+| Lint        | `pnpm lint` 通过；api / web 均为 0 warning                                                                                                                                    |
+| Typecheck   | `pnpm typecheck` 通过（shared / api / web）                                                                                                                                   |
+| 单元测试    | shared 12、api 81、web 47，全部通过                                                                                                                                           |
+| API E2E     | 4 suites / 28 tests 通过（`app`、`report-period`、`assignment-suggestions`、`ai-plan`）                                                                                       |
+| Playwright  | 12 / 12 通过；包含「报告」页、Markdown 下载、AI 拆解预览流程                                                                                                                  |
+| 生产构建    | `pnpm build` 通过（shared / api / web；`/projects/[id]/reports` 构建成功）                                                                                                    |
+| 归档语义    | 实测归档后 `GET /reports/period` 返回 200，`POST /reports/period/narrative` 返回 409 `PROJECT_ARCHIVED`；随后已恢复项目                                                       |
+| 限流        | 连续调用 narrative 端点出现 429（10 次/分钟）                                                                                                                                 |
+| 导出        | 实测下载 `.md` 与可打印 `.html`；HTML 含 `<!doctype html>`、`@media print`、`window.print()`，可独立打开                                                                      |
+| AI 分支     | 本地 OpenAI 兼容代理实测：breakdown、ai-plan、period narrative、assign-suggestions 均返回 `source=ai`、`model=group/safely-deepseek`；未配置/失败降级与防注入由单测 mock 覆盖 |
+| AI 出站安全 | 默认拒绝 loopback/私有/保留地址；本地开发显式 `AI_ALLOW_LOOPBACK=true` 才允许 127.0.0.1；非 http(s)、带凭据 URL、私网/链路本地地址由单测拒绝；请求设置 `redirect: 'error'`    |
+| 数据迁移    | `20261125142207_v1_6_member_skills` 已应用；仅新增 `project_members.skills` 与 `MEMBER_SKILLS_CHANGED`，无新增报告表 / 队列表                                                 |
+| 手工检查    | 负责人团队报告、成员个人报告、成员职能编辑、智能推荐弹窗、AI 任务分工预览均已人工打开核对；任务/依赖在确认前未发生写入                                                        |
+
+**结论**：本期验收通过。AI 已通过本地 OpenAI 兼容代理真实验证（breakdown / plan / narrative / assign-suggestions 均 `source=ai`）；未配置模型时的本地回退路径也已验证。

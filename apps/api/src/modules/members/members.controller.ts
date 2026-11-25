@@ -2,13 +2,15 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@ne
 import {
   createInviteSchema,
   updateMemberSchema,
+  updateMemberSkillsSchema,
   type CreateInviteInput,
   type UpdateMemberInput,
+  type UpdateMemberSkillsInput,
 } from '@teamflow/shared/schemas';
 import { CurrentUser } from '../../common/current-user.decorator';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { RequireMember, RequirePermission } from '../permissions/permission.decorators';
-import { MembersService } from './members.service';
+import { MembersService, type SerializedMember } from './members.service';
 
 @Controller('projects/:projectId/members')
 export class MembersController {
@@ -16,8 +18,18 @@ export class MembersController {
 
   @Get()
   @RequireMember()
-  list(@Param('projectId') projectId: string) {
+  list(@Param('projectId') projectId: string): Promise<{ items: SerializedMember[] }> {
     return this.members.list(projectId);
+  }
+
+  @Patch('me/skills')
+  @RequireMember()
+  updateMySkills(
+    @CurrentUser() user: { id: string },
+    @Param('projectId') projectId: string,
+    @Body(new ZodValidationPipe(updateMemberSkillsSchema)) body: UpdateMemberSkillsInput,
+  ): Promise<SerializedMember> {
+    return this.members.updateMySkills(user.id, projectId, body.skills);
   }
 
   @Patch(':userId')
@@ -27,7 +39,7 @@ export class MembersController {
     @Param('projectId') projectId: string,
     @Param('userId') userId: string,
     @Body(new ZodValidationPipe(updateMemberSchema)) body: UpdateMemberInput,
-  ) {
+  ): Promise<SerializedMember> {
     return this.members.updateMember(user.id, projectId, userId, body);
   }
 

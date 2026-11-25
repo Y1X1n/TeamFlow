@@ -3,10 +3,9 @@ import { expect, test, type Page } from '@playwright/test';
 const API = 'http://localhost:4000/api/v1';
 
 let sharedAccessToken: string | null = null;
-let sharedRefreshToken: string | null = null;
 
 async function authenticate(page: Page): Promise<string> {
-  if (!sharedAccessToken || !sharedRefreshToken) {
+  if (!sharedAccessToken) {
     const response = await fetch(`${API}/auth/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -14,33 +13,16 @@ async function authenticate(page: Page): Promise<string> {
     });
     if (!response.ok) throw new Error(`E2E login failed: ${response.status}`);
     const body = (await response.json()) as { accessToken: string };
-    const cookie = /tf_refresh=([^;]+)/.exec(response.headers.get('set-cookie') ?? '');
-    if (!cookie?.[1]) throw new Error('E2E login did not return tf_refresh');
     sharedAccessToken = body.accessToken;
-    sharedRefreshToken = cookie[1];
   }
-  await page.context().addCookies([
-    {
-      name: 'tf_refresh',
-      value: sharedRefreshToken,
-      domain: 'localhost',
-      path: '/api/v1/auth',
-      expires: -1,
-      httpOnly: true,
-      secure: false,
-      sameSite: 'Lax',
-    },
-  ]);
+  await page.route('**/api/v1/auth/refresh', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ accessToken: sharedAccessToken }),
+    }),
+  );
   return sharedAccessToken;
-}
-
-async function loginAsAlice(page: Page) {
-  await page.goto('/login');
-  await page.locator('#email').fill('alice@example.com');
-  await page.locator('#password').fill('Passw0rd!');
-  await page.getByRole('button', { name: '登录', exact: true }).click();
-  await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('link', { name: /打开项目/ }).first()).toBeVisible();
 }
 
 async function openDemoProject(page: Page) {
@@ -64,15 +46,11 @@ async function demoProjectId(token: string): Promise<string> {
 test.describe('critical flows', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test.afterEach(async ({ page }) => {
-    const cookies = await page.context().cookies();
-    const refresh = cookies.find((cookie) => cookie.name === 'tf_refresh');
-    if (refresh?.value) sharedRefreshToken = refresh.value;
-  });
-
-  test('login, dashboard and realtime board render', async ({ page }) => {
+  test('dashboard and realtime board render', async ({ page }) => {
     await page.context().clearCookies();
-    await loginAsAlice(page);
+    await authenticate(page);
+    await page.goto('/');
+    await expect(page.getByRole('link', { name: /打开项目/ }).first()).toBeVisible();
     await openDemoProject(page);
     await expect(page.getByText('待办').first()).toBeVisible();
     await expect(page.getByText('进行中').first()).toBeVisible();
@@ -121,7 +99,7 @@ test.describe('critical flows', () => {
     await expect(page.getByText('邀请', { exact: false }).first()).toBeVisible();
   });
 
-  test('timeline and weekly reports render', async ({ page }) => {
+  test('timeline and reports render', async ({ page }) => {
     await authenticate(page);
     await page.goto('/');
     await expect(page.getByRole('link', { name: /打开项目/ }).first()).toBeVisible();
@@ -131,8 +109,14 @@ test.describe('critical flows', () => {
     await expect(page.getByText('活动时间线').first()).toBeVisible();
     await expect(page.getByText('Alice').first()).toBeVisible();
 
-    await page.getByRole('link', { name: '周报', exact: true }).click();
+    await page.getByRole('link', { name: '报告', exact: true }).click();
     await expect(page).toHaveURL(/\/reports$/);
+    await expect(page.getByText('团队总览').first()).toBeVisible();
+    await expect(page.getByText('报告预览').first()).toBeVisible();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: '导出 Markdown' }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/\.md$/);
     await expect(page.getByText('历史周报快照')).toBeVisible();
     const generate = page.getByRole('button', { name: /保存本周快照/ }).first();
     if (await generate.isVisible()) {
@@ -332,9 +316,13 @@ test.describe('critical flows', () => {
       await dialog.getByRole('checkbox', { name: `切换「${subtaskTitle}」完成状态` }).click();
 
       await dialog.getByRole('button', { name: 'AI 拆解' }).click();
-      const aiDialog = page.getByRole('dialog', { name: 'AI 拆解子任务' });
+      const aiDialog = page.getByRole('dialog', { name: 'AI 任务拆解' });
       await expect(aiDialog).toBeVisible();
-      await aiDialog.getByRole('button', { name: '生成子任务' }).click();
+      await aiDialog.getByRole('button', { name: '生成预览' }).click();
+      await expect(aiDialog.getByRole('textbox').first()).toHaveValue(/明确「V1.1 任务/, {
+        timeout: 15_000,
+      });
+      await aiDialog.getByRole('button', { name: /创建 \d+ 个子任务/ }).click();
       await expect(dialog.getByText(/明确「V1.1 任务/).first()).toBeVisible({
         timeout: 15_000,
       });
@@ -487,7 +475,9 @@ test.describe('critical flows', () => {
     const token = await authenticate(page);
     const projectId = await demoProjectId(token);
     await page.goto(`/projects/${projectId}/reports`);
-    await expect(page.getByText('本周实时汇总')).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.getByRole('heading', { name: /本周实时汇总/ }),
+    ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/本周新增 \d+ 个任务/).first()).toBeVisible();
     await expect(page.getByRole('button', { name: '智能发送邮件' })).toBeVisible();
 

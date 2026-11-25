@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { UpdateMemberInput, CreateInviteInput } from '@teamflow/shared/schemas';
+import type { ProjectRole } from '@teamflow/shared/enums';
 import type { PermissionOverrides } from '@teamflow/shared/permissions';
 import { DomainError } from '../../common/domain-error';
 import { randomToken, sha256Hex } from '../../common/hash';
@@ -13,6 +14,18 @@ import { AccessService } from '../permissions/access.service';
 import { ProjectsService } from '../projects/projects.service';
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export interface SerializedMember {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  role: ProjectRole;
+  permissionOverrides: PermissionOverrides | null;
+  skills: string[];
+  joinedAt: Date;
+}
 
 @Injectable()
 export class MembersService {
@@ -29,11 +42,12 @@ export class MembersService {
   private serializeMember(member: {
     id: string;
     userId: string;
-    role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'VIEWER';
+    role: ProjectRole;
     permissionOverrides: Prisma.JsonValue;
+    skills: string[];
     joinedAt: Date;
     user: { email: string; name: string; avatarUrl: string | null };
-  }) {
+  }): SerializedMember {
     return {
       id: member.id,
       userId: member.userId,
@@ -45,11 +59,12 @@ export class MembersService {
         member.permissionOverrides && typeof member.permissionOverrides === 'object'
           ? (member.permissionOverrides as PermissionOverrides)
           : null,
+      skills: member.skills ?? [],
       joinedAt: member.joinedAt,
     };
   }
 
-  async list(projectId: string) {
+  async list(projectId: string): Promise<{ items: SerializedMember[] }> {
     const members = await this.prisma.projectMember.findMany({
       where: { projectId },
       include: { user: { select: { email: true, name: true, avatarUrl: true } } },
@@ -260,7 +275,7 @@ export class MembersService {
     projectId: string,
     targetUserId: string,
     input: UpdateMemberInput,
-  ) {
+  ): Promise<SerializedMember> {
     const actorAccess = await this.access.getContext(actorId, projectId);
     const target = await this.prisma.projectMember.findUnique({
       where: { projectId_userId: { projectId, userId: targetUserId } },
@@ -283,6 +298,7 @@ export class MembersService {
       data.permissionOverrides =
         input.permissionOverrides === null ? Prisma.DbNull : input.permissionOverrides;
     }
+    if (input.skills !== undefined) data.skills = input.skills;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const member = await tx.projectMember.update({
@@ -306,10 +322,20 @@ export class MembersService {
           payload: { userId: targetUserId, overrides: input.permissionOverrides },
         });
       }
+      if (input.skills !== undefined) {
+        await this.activities.record(tx, {
+          projectId,
+          actorId,
+          type: 'MEMBER_SKILLS_CHANGED',
+          payload: { userId: targetUserId, skills: input.skills },
+        });
+      }
       return member;
     });
 
-    if (input.role !== undefined || input.permissionOverrides !== undefined) {
+    const roleOrPermissionsChanged =
+      input.role !== undefined || input.permissionOverrides !== undefined;
+    if (roleOrPermissionsChanged) {
       await this.notifications.create({
         userId: targetUserId,
         type: 'ROLE_CHANGED',
@@ -319,8 +345,39 @@ export class MembersService {
           kind: input.role !== undefined ? 'role' : 'permissions',
         },
       });
+    }
+    if (roleOrPermissionsChanged || input.skills !== undefined) {
       await this.events.publish(projectId, 'project.member.changed', { userId: targetUserId });
     }
+    return this.serializeMember(updated);
+  }
+
+  async updateMySkills(
+    actorId: string,
+    projectId: string,
+    skills: string[],
+  ): Promise<SerializedMember> {
+    const access = await this.access.getContext(actorId, projectId);
+    if (access.archived) {
+      throw new DomainError('PROJECT_ARCHIVED', 409, 'Project is archived');
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const member = await tx.projectMember.update({
+        where: { projectId_userId: { projectId, userId: actorId } },
+        data: { skills },
+        include: { user: { select: { email: true, name: true, avatarUrl: true } } },
+      });
+      await this.activities.record(tx, {
+        projectId,
+        actorId,
+        type: 'MEMBER_SKILLS_CHANGED',
+        payload: { userId: actorId, skills },
+      });
+      return member;
+    });
+
+    await this.events.publish(projectId, 'project.member.changed', { userId: actorId });
     return this.serializeMember(updated);
   }
 
