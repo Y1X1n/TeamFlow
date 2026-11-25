@@ -22,6 +22,7 @@ import {
   formatMonthLabel,
   monthAnchorFromDateKey,
   monthMatrix,
+  parseDateKey,
   shanghaiDateKey,
   shiftMonth,
   sortTasksForCalendar,
@@ -31,6 +32,12 @@ import type { MonthAnchor } from './calendar-utils';
 
 const EMPTY_TASKS: TaskCard[] = [];
 const EMPTY_COLUMNS: BoardColumn[] = [];
+
+function hasValidDueDate(task: TaskCard): boolean {
+  if (!task.dueDate) return false;
+  const dateKey = shanghaiDateKey(task.dueDate);
+  return dateKey !== '' && parseDateKey(dateKey) !== null;
+}
 
 export function ProjectCalendarPage({ projectId }: { projectId: string }) {
   const [todayKey, setTodayKey] = useState(() => shanghaiDateKey(new Date()));
@@ -81,11 +88,7 @@ export function ProjectCalendarPage({ projectId }: { projectId: string }) {
   const noDueTasks = useMemo(
     () =>
       sortTasksForCalendar(
-        tasks.filter(
-          (task) =>
-            task.completedAt === null &&
-            (task.dueDate === null || shanghaiDateKey(task.dueDate) === ''),
-        ),
+        tasks.filter((task) => task.completedAt === null && !hasValidDueDate(task)),
       ),
     [tasks],
   );
@@ -93,10 +96,7 @@ export function ProjectCalendarPage({ projectId }: { projectId: string }) {
     () => Array.from(groupedTasks.values()).reduce((total, bucket) => total + bucket.length, 0),
     [groupedTasks],
   );
-  const exportableTasks = useMemo(
-    () => tasks.filter((task) => task.dueDate !== null && shanghaiDateKey(task.dueDate) !== ''),
-    [tasks],
-  );
+  const exportableTasks = useMemo(() => tasks.filter(hasValidDueDate), [tasks]);
 
   const goToMonth = (next: MonthAnchor) => {
     setMonthAnchor(next);
@@ -156,7 +156,7 @@ export function ProjectCalendarPage({ projectId }: { projectId: string }) {
             variant="outline"
             size="sm"
             onClick={handleExportIcs}
-            disabled={!boardQuery.isSuccess || exportableTasks.length === 0}
+            disabled={!board || exportableTasks.length === 0}
             title={
               exportableTasks.length === 0 ? '暂无可导出的任务，请先为任务设置截止日期' : undefined
             }
@@ -180,7 +180,7 @@ export function ProjectCalendarPage({ projectId }: { projectId: string }) {
               <Skeleton className="h-40 rounded-xl lg:col-span-2" />
             </div>
           </div>
-        ) : boardQuery.isError ? (
+        ) : boardQuery.isError && !board ? (
           <Card role="alert" className="flex flex-col items-center gap-3 p-8 text-center">
             <AlertCircle className="h-8 w-8 text-destructive" aria-hidden="true" />
             <div>

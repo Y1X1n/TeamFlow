@@ -6,11 +6,10 @@ import type { MouseEvent } from 'react';
 import { UserAvatar } from '@/components/ui/avatar';
 import type { TaskCard } from '@/lib/types';
 import { avatarColor, cn, initials } from '@/lib/utils';
-import { PRIORITY_DOT_CLASSES, isTaskOverdue } from './calendar-utils';
+import { PRIORITY_DOT_CLASSES, isTaskOverdue, partitionDayChips } from './calendar-utils';
 import type { MonthCell } from './calendar-utils';
 
 const WEEKDAY_LABELS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'] as const;
-const MAX_DAY_CHIPS = 3;
 
 interface MonthGridProps {
   cells: MonthCell[];
@@ -83,8 +82,7 @@ function DayCell({
   isLastColumn: boolean;
   onSelectDay: (dateKey: string) => void;
 }) {
-  const visibleTasks = tasks.slice(0, MAX_DAY_CHIPS);
-  const hiddenCount = tasks.length - visibleTasks.length;
+  const { visible: visibleTasks, hiddenCount } = partitionDayChips(tasks);
 
   const handleCellClick = (event: MouseEvent<HTMLDivElement>) => {
     const target = event.target;

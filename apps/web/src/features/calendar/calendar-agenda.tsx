@@ -154,7 +154,7 @@ export function NoDueTaskList({ projectId, tasks }: { projectId: string; tasks: 
           <Badge variant="muted">{tasks.length} 项</Badge>
         </div>
         <p className="text-xs text-muted-foreground">
-          未完成任务中暂无未设置截止时间的任务，设置后会出现在日历中。
+          未完成任务中还没有设置截止时间的任务，设置后会出现在日历中。
         </p>
       </CardHeader>
       <CardContent>

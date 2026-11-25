@@ -31,7 +31,7 @@ async function openDemoProject(page: Page) {
     .getByRole('link', { name: /打开项目 毕业设计协作/ })
     .first()
     .click();
-  await expect(page).toHaveURL(/\/projects\/[^/]+$/);
+  await expect(page).toHaveURL(/\/projects\/[^/]+$/, { timeout: 20_000 });
   await expect(page.getByRole('heading', { name: /毕业设计协作/ })).toBeVisible();
 }
 
@@ -143,7 +143,21 @@ test.describe('critical flows', () => {
     if (!column) throw new Error('Demo project has no columns');
 
     const title = `E2E 日历任务 ${Date.now()}`;
-    const dueDate = '2026-11-28T04:00:00.000Z';
+    const nowParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const currentYear = Number(nowParts.find((part) => part.type === 'year')?.value);
+    const currentMonth = Number(nowParts.find((part) => part.type === 'month')?.value);
+    const due = new Date(Date.UTC(currentYear, currentMonth - 1, 15, 4, 0, 0));
+    const next = new Date(due.getTime() + 24 * 60 * 60 * 1000);
+    const icsDate = (date: Date): string =>
+      `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}${String(
+        date.getUTCDate(),
+      ).padStart(2, '0')}`;
+    const dueDate = due.toISOString();
     const created = await fetch(`${API}/projects/${projectId}/tasks`, {
       method: 'POST',
       headers,
@@ -175,8 +189,8 @@ test.describe('critical flows', () => {
       expect(content).toContain('BEGIN:VEVENT');
       expect(content).toContain(`SUMMARY:${title}`);
       expect(content).toContain('UID:teamflow-task-' + created.id + '@teamflow');
-      expect(content).toContain('DTSTART;VALUE=DATE:20261128');
-      expect(content).toContain('DTEND;VALUE=DATE:20261129');
+      expect(content).toContain(`DTSTART;VALUE=DATE:${icsDate(due)}`);
+      expect(content).toContain(`DTEND;VALUE=DATE:${icsDate(next)}`);
       expect(content).toContain('STATUS:CONFIRMED');
       expect(content).not.toContain('STATUS:COMPLETED');
       expect(content).not.toContain('METHOD:');

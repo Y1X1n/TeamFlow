@@ -145,7 +145,7 @@ export function tasksByDate(tasks: TaskCard[]): Map<string, TaskCard[]> {
   for (const task of tasks) {
     if (!task.dueDate) continue;
     const dateKey = shanghaiDateKey(task.dueDate);
-    if (!dateKey) continue;
+    if (!dateKey || !parseDateKey(dateKey)) continue;
     const bucket = grouped.get(dateKey);
     if (bucket) {
       bucket.push(task);
@@ -168,6 +168,21 @@ export function sortTasksForCalendar(tasks: TaskCard[]): TaskCard[] {
       PRIORITY_RANK[left.priority] - PRIORITY_RANK[right.priority] ||
       left.title.localeCompare(right.title, 'zh-CN'),
   );
+}
+
+/**
+ * 单日 chip 分配：超过上限时只显示上限减一条，为“+N”留出固定位置，
+ * 避免小屏格子把“还有更多”裁掉。
+ */
+export function partitionDayChips(
+  tasks: TaskCard[],
+  maxChips = 3,
+): { visible: TaskCard[]; hiddenCount: number } {
+  const maxVisible = tasks.length > maxChips ? Math.max(1, maxChips - 1) : maxChips;
+  return {
+    visible: tasks.slice(0, maxVisible),
+    hiddenCount: tasks.length - Math.max(0, Math.min(tasks.length, maxVisible)),
+  };
 }
 
 export function formatMonthLabel(anchor: MonthAnchor): string {
@@ -259,8 +274,8 @@ export function foldIcsLine(line: string): string {
 }
 
 /**
- * 生成项目任务的 ICS 日历：每个有截止日期的任务是一个全天事件，
- * 已完成任务标记 STATUS:COMPLETED，未完成标记 STATUS:CONFIRMED。
+ * 生成项目任务的 ICS 日历：每个有截止日期的任务是一个全天事件。
+ * VEVENT 统一使用 STATUS:CONFIRMED；完成状态写入 DESCRIPTION。
  */
 export function buildProjectIcs({
   projectName,

@@ -8,6 +8,7 @@ import {
   formatIcsTimestamp,
   monthMatrix,
   nextDateKey,
+  partitionDayChips,
   shanghaiDateKey,
   tasksByDate,
 } from '../calendar-utils';
@@ -122,6 +123,30 @@ describe('calendar-utils', () => {
       expect([...grouped.keys()].sort()).toEqual(['2026-11-25', '2026-11-26']);
       expect(grouped.get('2026-11-26')?.map((task) => task.id)).toEqual(['late']);
       expect(grouped.get('2026-11-25')?.map((task) => task.id)).toEqual(['early']);
+    });
+  });
+
+  describe('partitionDayChips', () => {
+    it('shows up to three chips when there is no overflow', () => {
+      const tasks = [makeTask({ id: '1' }), makeTask({ id: '2' }), makeTask({ id: '3' })];
+      expect(partitionDayChips(tasks)).toEqual({ visible: tasks, hiddenCount: 0 });
+    });
+
+    it('reserves a fixed slot for +N when more than three tasks land on a day', () => {
+      const tasks = [
+        makeTask({ id: '1' }),
+        makeTask({ id: '2' }),
+        makeTask({ id: '3' }),
+        makeTask({ id: '4' }),
+        makeTask({ id: '5' }),
+      ];
+      const result = partitionDayChips(tasks);
+      expect(result.visible.map((task) => task.id)).toEqual(['1', '2']);
+      expect(result.hiddenCount).toBe(3);
+    });
+
+    it('handles empty days', () => {
+      expect(partitionDayChips([])).toEqual({ visible: [], hiddenCount: 0 });
     });
   });
 

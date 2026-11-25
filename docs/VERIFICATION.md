@@ -374,9 +374,10 @@
 | ---------- | -------------------------------------------------------------------------------------------------- |
 | Typecheck  | `pnpm typecheck` 通过（shared / api / web）                                                        |
 | Lint       | `pnpm --filter @teamflow/web lint` 通过（0 warning）；根级 lint 通过                               |
-| 单元测试   | shared 12、api 87、web 76 全过；新增 calendar 17、task-age 7、task-label 5                         |
+| 单元测试   | shared 12、api 87、web 79 全过；新增 calendar 20、task-age 7、task-label 5                         |
 | Playwright | 13 / 13 通过；新增「项目日历渲染 + ICS 下载」用例，断言精确 DTSTART/DTEND、UID、无 METHOD、仅 CRLF |
 | ICS 语义   | VEVENT 统一 `STATUS:CONFIRMED`，完成状态写入 DESCRIPTION；不输出 `METHOD`，避免 iTIP 不合规        |
+| 溢出展示   | 单日超过 3 个任务时固定显示 2 条 + `+N`，由 `partitionDayChips` 单测覆盖，避免小屏裁剪             |
 | 生产构建   | `pnpm build` 通过；`/projects/[id]/calendar` 已进入生产路由                                        |
 | 视觉检查   | 日历月视图、任务 chip、无截止任务、标签配色、停滞提醒均已人工截图核对                              |
 | 数据边界   | 未新增后端接口/迁移/报告表；任务卡与抽屉仅使用既有 `updatedAt` 与标签文本                          |
