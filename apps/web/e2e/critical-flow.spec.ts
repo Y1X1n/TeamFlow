@@ -85,6 +85,29 @@ test.describe('critical flows', () => {
     }
   });
 
+  test('board groups tasks by assignee and resumes drag when ungrouped', async ({ page }) => {
+    await authenticate(page);
+    await page.goto('/');
+    await expect(page.getByRole('link', { name: /打开项目/ }).first()).toBeVisible();
+    await openDemoProject(page);
+
+    const groupSelect = page.getByRole('combobox', { name: '任务分组' });
+    await groupSelect.click();
+    await page.getByRole('option', { name: '按负责人' }).click();
+
+    await expect(
+      page.getByText('分组视图用于浏览；拖拽排序请切换「不分组」').first(),
+    ).toBeVisible();
+    await expect(page.getByRole('group', { name: /Alice：/ }).first()).toBeVisible();
+    await expect(page.getByRole('group', { name: /未指派：/ }).first()).toBeVisible();
+    await expect(page.getByLabel(/拖动任务：/)).toHaveCount(0);
+
+    await groupSelect.click();
+    await page.getByRole('option', { name: '不分组' }).click();
+    await expect(page.getByText('分组视图用于浏览；拖拽排序请切换「不分组」').first()).toBeHidden();
+    await expect(page.getByLabel(/拖动任务：/).first()).toBeVisible();
+  });
+
   test('settings page lists members and permissions', async ({ page }) => {
     await authenticate(page);
     await page.goto('/');

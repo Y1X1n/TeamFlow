@@ -19,6 +19,8 @@ import type { MemberSummary } from '@/lib/types';
 import { isTaskPriority } from '@/features/tasks/task-utils';
 import type { BoardConnectionStatus } from './hooks/use-board-sync';
 import type { DueFilter } from './board-utils';
+import { BOARD_GROUP_OPTIONS, isBoardGroupBy } from './board-grouping';
+import type { BoardGroupBy } from './board-grouping';
 
 const DUE_FILTER_LABELS: Record<DueFilter, string> = {
   all: '全部截止时间',
@@ -41,6 +43,8 @@ interface BoardToolbarProps {
   onPriorityFilterChange: (value: 'all' | TaskPriority) => void;
   dueFilter: DueFilter;
   onDueFilterChange: (value: DueFilter) => void;
+  groupBy: BoardGroupBy;
+  onGroupByChange: (value: BoardGroupBy) => void;
   members: MemberSummary[];
   totalCount: number;
   filteredCount: number;
@@ -83,6 +87,8 @@ export function BoardToolbar({
   onPriorityFilterChange,
   dueFilter,
   onDueFilterChange,
+  groupBy,
+  onGroupByChange,
   members,
   totalCount,
   filteredCount,
@@ -168,6 +174,24 @@ export function BoardToolbar({
         </SelectContent>
       </Select>
 
+      <Select
+        value={groupBy}
+        onValueChange={(value) => {
+          if (isBoardGroupBy(value)) onGroupByChange(value);
+        }}
+      >
+        <SelectTrigger className="h-8 w-32" aria-label="任务分组">
+          <SelectValue placeholder="分组" />
+        </SelectTrigger>
+        <SelectContent>
+          {BOARD_GROUP_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
       {hasFilters ? (
         <Button
           type="button"
@@ -185,6 +209,11 @@ export function BoardToolbar({
       ) : null}
 
       <div className="ml-auto flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        {groupBy !== 'none' ? (
+          <span role="status" aria-live="polite">
+            分组视图用于浏览；拖拽排序请切换「不分组」
+          </span>
+        ) : null}
         <span>
           {hasFilters
             ? `筛选 ${filteredCount} / 共 ${totalCount} 个任务`

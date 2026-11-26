@@ -40,6 +40,7 @@ import { BoardToolbar } from './board-toolbar';
 import { CreateTaskDialog } from './create-task-dialog';
 import { TaskCardOverlay } from './task-card';
 import { useBoardSync } from './hooks/use-board-sync';
+import type { BoardGroupBy } from './board-grouping';
 import {
   COLUMN_DROPPABLE_PREFIX,
   buildColumnTaskIds,
@@ -129,6 +130,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
   const [assigneeFilter, setAssigneeFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | TaskPriority>('all');
   const [dueFilter, setDueFilter] = useState<DueFilter>('all');
+  const [groupBy, setGroupBy] = useState<BoardGroupBy>('none');
   const [createOpen, setCreateOpen] = useState(false);
   const [quickAddColumnId, setQuickAddColumnId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -375,6 +377,11 @@ export function BoardPage({ projectId }: { projectId: string }) {
     setQuickAddColumnId((previous) => (previous === columnId ? null : columnId));
   };
 
+  const handleGroupByChange = (value: BoardGroupBy) => {
+    setGroupBy(value);
+    setActiveId(null);
+  };
+
   const applyMove = async (task: TaskCard, resolution: DropResolution, force = false) => {
     const boardKey = queryKeys.board(projectId);
     await queryClient.cancelQueries({ queryKey: boardKey });
@@ -423,7 +430,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
   const handleDragStart = (event: DragStartEvent) => {
     const id = String(event.active.id);
     const task = taskById.get(id);
-    if (!task || !canMove || lockedTaskNames[id]) return;
+    if (!task || !canMove || groupBy !== 'none' || lockedTaskNames[id]) return;
     setActiveId(id);
   };
 
@@ -431,7 +438,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
     const id = String(event.active.id);
     const task = taskById.get(id);
     setActiveId(null);
-    if (!task || !event.over || !canMove) return;
+    if (!task || !event.over || !canMove || groupBy !== 'none') return;
     const over = event.over;
     const overColumnId = columnIdFromOver(over, taskById);
     if (!overColumnId) return;
@@ -521,6 +528,8 @@ export function BoardPage({ projectId }: { projectId: string }) {
         onPriorityFilterChange={setPriorityFilter}
         dueFilter={dueFilter}
         onDueFilterChange={setDueFilter}
+        groupBy={groupBy}
+        onGroupByChange={handleGroupByChange}
         members={members}
         totalCount={tasks.length}
         filteredCount={filteredTasks.length}
@@ -560,7 +569,9 @@ export function BoardPage({ projectId }: { projectId: string }) {
                   column={column}
                   colorIndex={index}
                   tasks={tasksByColumn[column.id] ?? []}
-                  canMove={canMove}
+                  groupBy={groupBy}
+                  membersById={membersById}
+                  canMove={canMove && groupBy === 'none'}
                   canAssign={canAssign}
                   canCreate={canCreate}
                   currentUserId={currentUserId}
