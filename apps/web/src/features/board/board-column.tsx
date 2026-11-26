@@ -35,9 +35,13 @@ interface BoardColumnViewProps {
   pendingDuplicateTaskId?: string;
   quickAddOpen: boolean;
   projectId: string;
+  selectionMode: boolean;
+  selectionDisabled?: boolean;
+  selectedIds: Set<string>;
   onToggleQuickAdd: (columnId: string) => void;
   onCloseQuickAdd: () => void;
   onOpenTask: (taskId: string) => void;
+  onToggleSelected: (taskId: string, selected: boolean) => void;
   onClaimTask: (task: TaskCard) => void;
   onMoveTask: (task: TaskCard, target: { id: string; name: string }) => void;
   onDuplicateTask: (task: TaskCard) => void;
@@ -101,9 +105,13 @@ export function BoardColumnView({
   pendingDuplicateTaskId,
   quickAddOpen,
   projectId,
+  selectionMode,
+  selectionDisabled,
+  selectedIds,
   onToggleQuickAdd,
   onCloseQuickAdd,
   onOpenTask,
+  onToggleSelected,
   onClaimTask,
   onMoveTask,
   onDuplicateTask,
@@ -138,6 +146,10 @@ export function BoardColumnView({
       claimPending={pendingClaimTaskId === task.id}
       movePending={pendingMoveTaskId === task.id}
       duplicatePending={pendingDuplicateTaskId === task.id}
+      selectable={selectionMode}
+      selected={selectedIds.has(task.id)}
+      selectionDisabled={selectionDisabled}
+      onToggleSelected={onToggleSelected}
       onOpen={onOpenTask}
       onClaim={onClaimTask}
       onMove={onMoveTask}

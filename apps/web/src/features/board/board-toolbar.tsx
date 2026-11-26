@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Loader2, Search, Settings2, Wifi, WifiOff } from 'lucide-react';
+import { CheckSquare, Loader2, Search, Settings2, Wifi, WifiOff, X } from 'lucide-react';
 import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from '@teamflow/shared/enums';
 import type { TaskPriority } from '@teamflow/shared/enums';
 import { Button } from '@/components/ui/button';
@@ -51,6 +51,9 @@ interface BoardToolbarProps {
   canManageColumns: boolean;
   projectId: string;
   connectionStatus: BoardConnectionStatus;
+  canSelect: boolean;
+  selectionMode: boolean;
+  onToggleSelection: () => void;
 }
 
 function ConnectionStatusPill({ status }: { status: BoardConnectionStatus }) {
@@ -95,6 +98,9 @@ export function BoardToolbar({
   canManageColumns,
   projectId,
   connectionStatus,
+  canSelect,
+  selectionMode,
+  onToggleSelection,
 }: BoardToolbarProps) {
   const hasFilters =
     search.trim().length > 0 ||
@@ -209,6 +215,22 @@ export function BoardToolbar({
       ) : null}
 
       <div className="ml-auto flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        {canSelect ? (
+          <Button
+            type="button"
+            variant={selectionMode ? 'secondary' : 'outline'}
+            size="sm"
+            className="h-8"
+            onClick={onToggleSelection}
+          >
+            {selectionMode ? (
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            ) : (
+              <CheckSquare className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+            {selectionMode ? '退出批量' : '批量选择'}
+          </Button>
+        ) : null}
         {groupBy !== 'none' ? (
           <span role="status" aria-live="polite">
             分组视图用于浏览；拖拽排序请切换「不分组」
@@ -229,6 +251,12 @@ export function BoardToolbar({
           </Button>
         ) : null}
       </div>
+
+      {selectionMode ? (
+        <div role="status" className="w-full text-xs text-muted-foreground">
+          批量模式：勾选卡片后可批量改负责人/优先级/完成；拖拽已暂停
+        </div>
+      ) : null}
     </div>
   );
 }
