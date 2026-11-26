@@ -19,6 +19,8 @@ export interface WorkloadEntry {
   avatarUrl: string | null;
   /** 未完成任务（含逾期） */
   open: number;
+  /** 未完成任务中已填写的预计工时合计（分钟） */
+  openEstimateMinutes: number;
   overdue: number;
   done: number;
   total: number;
@@ -94,6 +96,7 @@ export function summarizeBoard(board: BoardData, now: Date = new Date()): Overvi
       name: member.name,
       avatarUrl: member.avatarUrl,
       open: 0,
+      openEstimateMinutes: 0,
       overdue: 0,
       done: 0,
       total: 0,
@@ -109,6 +112,7 @@ export function summarizeBoard(board: BoardData, now: Date = new Date()): Overvi
       entry.done += 1;
     } else {
       entry.open += 1;
+      if (typeof task.estimateMinutes === 'number') entry.openEstimateMinutes += task.estimateMinutes;
       if (isOverdue(task.dueDate, task.completedAt)) entry.overdue += 1;
     }
   }

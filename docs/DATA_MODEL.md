@@ -58,6 +58,7 @@ erDiagram
       string assignee_id FK
       string created_by_id FK
       datetime due_date
+      int estimate_minutes
       string[] labels
       string position
       datetime completed_at
@@ -229,6 +230,7 @@ enum ActivityType {
 | assignee_id             | text         | FK → users, ON DELETE SET NULL, NULL   | 必须是项目成员（服务层校验） |
 | created_by_id           | text         | FK → users, ON DELETE RESTRICT         |                              |
 | due_date                | timestamptz  | NULL                                   |                              |
+| estimate_minutes        | integer      | NULL                                   | 15–10080 分钟，15 分钟粒度   |
 | labels                  | text[]       | NOT NULL, DEFAULT `{}`                 | ≤5 个，单个 1–20 字符        |
 | position                | text         | NOT NULL                               | 分数索引，列内排序           |
 | completed_at            | timestamptz  | NULL                                   | `is_done=true` 列时非空      |

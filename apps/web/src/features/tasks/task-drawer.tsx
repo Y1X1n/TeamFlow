@@ -55,8 +55,10 @@ import { TaskSubtasks } from './task-subtasks';
 import { TaskWatch } from './task-watch';
 import {
   getErrorMessage,
+  formatEstimateMinutes,
   isTaskPriority,
   parseDateTimeLocal,
+  parseEstimateHours,
   parseLabelsInput,
   toDateTimeLocalValue,
 } from './task-utils';
@@ -76,6 +78,7 @@ interface UpdateTaskPayload {
   priority?: TaskPriority;
   assigneeId?: string | null;
   dueDate?: string | null;
+  estimateMinutes?: number | null;
   labels?: string[];
 }
 
@@ -95,6 +98,7 @@ export function TaskDrawer({
   const [labelsEditing, setLabelsEditing] = useState(false);
   const [labelsDraft, setLabelsDraft] = useState('');
   const [dueDraft, setDueDraft] = useState('');
+  const [estimateDraft, setEstimateDraft] = useState('');
   const [draftsFor, setDraftsFor] = useState<string | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
@@ -126,6 +130,7 @@ export function TaskDrawer({
     setTitleDraft(task.title);
     setLabelsDraft(task.labels.join(', '));
     setDueDraft(toDateTimeLocalValue(task.dueDate));
+    setEstimateDraft(task.estimateMinutes === null ? '' : String(task.estimateMinutes / 60));
     setTitleEditing(false);
     setDescEditing(false);
     setLabelsEditing(false);
@@ -134,6 +139,12 @@ export function TaskDrawer({
   useEffect(() => {
     setDueDraft(toDateTimeLocalValue(task?.dueDate ?? null));
   }, [task?.dueDate]);
+
+  useEffect(() => {
+    setEstimateDraft(task?.estimateMinutes === null || task?.estimateMinutes === undefined
+      ? ''
+      : String(task.estimateMinutes / 60));
+  }, [task?.estimateMinutes]);
 
   const updateTask = useMutation<TaskDetail, Error, UpdateTaskPayload>({
     mutationFn: (payload) =>
@@ -236,6 +247,15 @@ export function TaskDrawer({
     updateTask.mutate({ dueDate: parsed.iso });
   };
 
+  const saveEstimate = () => {
+    const parsed = parseEstimateHours(estimateDraft);
+    if (parsed.error) {
+      toast.error(parsed.error);
+      return;
+    }
+    updateTask.mutate({ estimateMinutes: parsed.minutes });
+  };
+
   const startLabelsEdit = () => {
     if (!task) return;
     setLabelsDraft(task.labels.join(', '));
@@ -272,8 +292,14 @@ export function TaskDrawer({
   };
 
   const dueChanged = task ? toDateTimeLocalValue(task.dueDate) !== dueDraft : false;
+  const parsedEstimateDraft = parseEstimateHours(estimateDraft);
+  const estimateChanged = task
+    ? parsedEstimateDraft.error !== null ||
+      parsedEstimateDraft.minutes !== (task.estimateMinutes ?? null)
+    : false;
   const overdue = task ? isOverdue(task.dueDate, task.completedAt) : false;
   const staleDays = task ? staleTaskDays(task.updatedAt, task.completedAt) : null;
+  const estimateLabel = task ? formatEstimateMinutes(task.estimateMinutes) : null;
 
   return (
     <Sheet
@@ -510,6 +536,36 @@ export function TaskDrawer({
                     {task.dueDate
                       ? `${overdue ? '已逾期 · ' : ''}${formatDateTime(task.dueDate)}`
                       : '未设置截止时间'}
+                  </p>
+                </div>
+
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="task-estimate">工时估算（小时）</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="task-estimate"
+                      type="number"
+                      min={0.25}
+                      max={168}
+                      step={0.25}
+                      value={estimateDraft}
+                      onChange={(event) => setEstimateDraft(event.target.value)}
+                      placeholder="未估算，例如 2"
+                      disabled={!canUpdate || updateTask.isPending}
+                    />
+                    {canUpdate && estimateChanged ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={saveEstimate}
+                        disabled={updateTask.isPending}
+                      >
+                        保存
+                      </Button>
+                    ) : null}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {estimateLabel ? `预计投入 ${estimateLabel}` : '未设置工时估算'}
                   </p>
                 </div>
 

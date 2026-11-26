@@ -2062,7 +2062,7 @@ components:
       required:
         [id, projectId, columnId, title, priority, labels, position, commentCount,
          attachmentCount, subtaskTotal, subtaskDone, blockedByCount, blockingCount,
-         createdAt, updatedAt]
+         estimateMinutes, createdAt, updatedAt]
       properties:
         id: { type: string }
         projectId: { type: string }
@@ -2074,6 +2074,12 @@ components:
             - $ref: '#/components/schemas/MemberSummary'
             - { type: 'null' }
         dueDate: { type: [string, 'null'], format: date-time }
+        estimateMinutes:
+          type: [integer, 'null']
+          minimum: 15
+          maximum: 10080
+          multipleOf: 15
+          description: 预计工时（分钟，15 分钟粒度）
         labels:
           type: array
           maxItems: 5
@@ -2164,6 +2170,11 @@ components:
         priority: { $ref: '#/components/schemas/TaskPriority' }
         assigneeId: { type: [string, 'null'] }
         dueDate: { type: [string, 'null'], format: date-time }
+        estimateMinutes:
+          type: [integer, 'null']
+          minimum: 15
+          maximum: 10080
+          multipleOf: 15
         labels:
           type: array
           maxItems: 5
@@ -2180,6 +2191,11 @@ components:
         priority: { $ref: '#/components/schemas/TaskPriority' }
         assigneeId: { type: [string, 'null'] }
         dueDate: { type: [string, 'null'], format: date-time }
+        estimateMinutes:
+          type: [integer, 'null']
+          minimum: 15
+          maximum: 10080
+          multipleOf: 15
         labels:
           type: array
           maxItems: 5

@@ -78,8 +78,11 @@ test.describe('critical flows', () => {
       const dialog = page.getByRole('dialog');
       await expect(dialog.getByText('新建任务')).toBeVisible();
       await dialog.getByLabel('标题').fill(title);
+      await dialog.getByLabel('工时估算（小时）').fill('2');
       await dialog.getByRole('button', { name: '创建任务' }).click();
       await expect(page.getByText(title).first()).toBeVisible({ timeout: 15_000 });
+      const createdCard = page.getByRole('button', { name: new RegExp(`打开任务：${title}`) });
+      await expect(createdCard).toContainText('2h');
       await page.getByRole('button', { name: `打开任务：${title}` }).click();
       await expect(page.getByRole('dialog')).toBeVisible();
       await expect(page.getByRole('dialog').getByText(title).first()).toBeVisible();
@@ -300,6 +303,79 @@ test.describe('critical flows', () => {
       for (const task of created) {
         await fetch(`${API}/tasks/${task.id}`, { method: 'DELETE', headers });
       }
+    }
+  });
+
+  test('task estimate can be edited in the drawer and shown on the card', async ({ page }) => {
+    const token = await authenticate(page);
+    const projectId = await demoProjectId(token);
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const board = await fetch(`${API}/projects/${projectId}/board`, { headers }).then((response) =>
+      expectJson<{
+        columns: Array<{ id: string; name: string; isDone: boolean }>;
+        members: Array<{ userId: string; name: string }>;
+      }>(response, 'load board'),
+    );
+    const column = board.columns.find((item) => !item.isDone);
+    const target = board.members[0];
+    if (!column) throw new Error('Demo project has no non-done column');
+    if (!target) throw new Error('Demo project has no members');
+
+    const title = `E2E 工时任务 ${Date.now()}`;
+    const created = await fetch(`${API}/projects/${projectId}/tasks`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        title,
+        columnId: column.id,
+        assigneeId: target.userId,
+        estimateMinutes: 60,
+      }),
+    }).then((response) => expectJson<{ id: string }>(response, 'create estimated task'));
+
+    let copyId: string | null = null;
+    try {
+      await page.goto(`/projects/${projectId}?task=${created.id}`);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog.getByText(title).first()).toBeVisible({ timeout: 15_000 });
+      const estimateInput = dialog.getByLabel('工时估算（小时）');
+      await expect(estimateInput).toHaveValue('1');
+      await expect(dialog.getByText('预计投入 1 小时')).toBeVisible();
+
+      await estimateInput.fill('1.5');
+      await dialog.getByRole('button', { name: '保存', exact: true }).click();
+      await expect(dialog.getByText('预计投入 1.5 小时')).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(
+          async () => {
+            const detail = await fetch(`${API}/tasks/${created.id}`, { headers }).then(
+              (response) =>
+                expectJson<{ estimateMinutes: number | null }>(response, 'poll estimate'),
+            );
+            return detail.estimateMinutes;
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(90);
+
+      await page.keyboard.press('Escape');
+      await expect(page.getByText('1.5h').first()).toBeVisible({ timeout: 10_000 });
+
+      await page.goto(`/projects/${projectId}/overview`);
+      await expect(page.getByText('成员工作负载')).toBeVisible();
+      await expect(page.getByText(/预计 1\.5 小时/).first()).toBeVisible({ timeout: 10_000 });
+
+      const copy = await fetch(`${API}/tasks/${created.id}/duplicate`, {
+        method: 'POST',
+        headers,
+      }).then((response) =>
+        expectJson<{ id: string; estimateMinutes: number | null }>(response, 'duplicate task'),
+      );
+      copyId = copy.id;
+      expect(copy.estimateMinutes).toBe(90);
+    } finally {
+      if (copyId) await fetch(`${API}/tasks/${copyId}`, { method: 'DELETE', headers });
+      await fetch(`${API}/tasks/${created.id}`, { method: 'DELETE', headers });
     }
   });
 

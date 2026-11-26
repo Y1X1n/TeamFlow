@@ -16,6 +16,7 @@ function makeTask(overrides: Partial<TaskCard> = {}): TaskCard {
     priority: 'MEDIUM',
     assignee: null,
     dueDate: null,
+    estimateMinutes: null,
     labels: [],
     position: 'a0',
     completedAt: null,

@@ -14,6 +14,7 @@ export interface TaskCardLike {
   priority: TaskPriority;
   assignee?: AssigneeLike | null;
   dueDate?: Date | null;
+  estimateMinutes?: number | null;
   labels: string[];
   position: string;
   completedAt?: Date | null;
@@ -47,6 +48,7 @@ export function serializeTaskCard(task: TaskCardLike, assigneeRole: ProjectRole 
         }
       : null,
     dueDate: task.dueDate ?? null,
+    estimateMinutes: task.estimateMinutes ?? null,
     labels: task.labels,
     position: task.position,
     completedAt: task.completedAt ?? null,

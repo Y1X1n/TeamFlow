@@ -1,5 +1,11 @@
 import type { QueryClient } from '@tanstack/react-query';
-import { TASK_LABELS_MAX, TASK_LABEL_MAX_LENGTH, TASK_PRIORITIES } from '@teamflow/shared/enums';
+import {
+  TASK_ESTIMATE_MAX_MINUTES,
+  TASK_ESTIMATE_MIN_MINUTES,
+  TASK_LABELS_MAX,
+  TASK_LABEL_MAX_LENGTH,
+  TASK_PRIORITIES,
+} from '@teamflow/shared/enums';
 import type { TaskPriority } from '@teamflow/shared/enums';
 import { ApiError } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
@@ -61,6 +67,51 @@ export function parseDateTimeLocal(value: string): DateTimeParseResult {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return { iso: null, valid: false };
   return { iso: date.toISOString(), valid: true };
+}
+
+export interface EstimateParseResult {
+  minutes: number | null;
+  error: string | null;
+}
+
+/** 表单以小时输入，存储与 API 统一使用分钟。 */
+export function parseEstimateHours(value: string): EstimateParseResult {
+  const trimmed = value.trim();
+  if (!trimmed) return { minutes: null, error: null };
+  const hours = Number(trimmed);
+  if (!Number.isFinite(hours)) {
+    return { minutes: null, error: '工时必须是数字' };
+  }
+  const totalMinutes = hours * 60;
+  const minutes = Math.round(totalMinutes);
+  if (Math.abs(totalMinutes - minutes) > 1e-6 || minutes % TASK_ESTIMATE_MIN_MINUTES !== 0) {
+    return { minutes: null, error: `工时需为 ${TASK_ESTIMATE_MIN_MINUTES / 60} 小时的整数倍` };
+  }
+  if (minutes < TASK_ESTIMATE_MIN_MINUTES || minutes > TASK_ESTIMATE_MAX_MINUTES) {
+    return {
+      minutes: null,
+      error: `工时需在 ${TASK_ESTIMATE_MIN_MINUTES / 60}–${TASK_ESTIMATE_MAX_MINUTES / 60} 小时之间`,
+    };
+  }
+  return { minutes, error: null };
+}
+
+export function formatEstimateMinutes(value: number | null): string | null {
+  if (value === null || value <= 0) return null;
+  const hours = value / 60;
+  const text = Number.isInteger(hours)
+    ? String(hours)
+    : hours.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return `${text} 小时`;
+}
+
+export function formatEstimateShort(value: number | null): string | null {
+  if (value === null || value <= 0) return null;
+  const hours = value / 60;
+  const text = Number.isInteger(hours)
+    ? String(hours)
+    : hours.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return `${text}h`;
 }
 
 export type TaskCountField = 'commentCount' | 'attachmentCount';

@@ -33,6 +33,7 @@ import type { TaskCard } from '@/lib/types';
 import { PriorityBadge } from '@/features/tasks/priority-badge';
 import { staleTaskDays } from '@/features/tasks/task-age';
 import { TaskLabelBadge } from '@/features/tasks/task-label';
+import { formatEstimateShort } from '@/features/tasks/task-utils';
 
 interface TaskCardViewProps {
   task: TaskCard;
@@ -61,9 +62,11 @@ export function TaskCardView({
 }: TaskCardViewProps) {
   const overdue = isOverdue(task.dueDate, task.completedAt);
   const staleDays = staleTaskDays(task.updatedAt, task.completedAt);
+  const estimateLabel = formatEstimateShort(task.estimateMinutes);
   const labels = task.labels.slice(0, 3);
   const extraLabels = task.labels.length - labels.length;
   const a11yParts = [task.title, `${TASK_PRIORITY_LABELS[task.priority]}优先级`];
+  if (estimateLabel) a11yParts.push(`预计 ${estimateLabel}`);
   a11yParts.push(task.assignee ? `负责人 ${task.assignee.name}` : '未指派');
   if (staleDays !== null) a11yParts.push(`已 ${staleDays} 天未更新`);
   if (task.blockedByCount > 0) a11yParts.push(`被 ${task.blockedByCount} 个任务阻塞`);
@@ -76,6 +79,16 @@ export function TaskCardView({
     <>
       <div className="flex flex-wrap items-center gap-1.5">
         <PriorityBadge priority={task.priority} />
+        {estimateLabel ? (
+          <Badge
+            variant="outline"
+            className="gap-0.5 px-1.5 py-0 text-[10px] font-normal"
+            title={`预计工时 ${estimateLabel}`}
+          >
+            <Clock3 className="h-3 w-3" aria-hidden="true" />
+            {estimateLabel}
+          </Badge>
+        ) : null}
         {task.completedAt ? (
           <span className="inline-flex items-center text-emerald-600">
             <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
