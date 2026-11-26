@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { CheckSquare, Loader2, Search, Settings2, Wifi, WifiOff, X } from 'lucide-react';
+import { CheckSquare, Download, Loader2, Search, Settings2, Wifi, WifiOff, X } from 'lucide-react';
 import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from '@teamflow/shared/enums';
 import type { TaskPriority } from '@teamflow/shared/enums';
 import { Button } from '@/components/ui/button';
@@ -54,6 +54,8 @@ interface BoardToolbarProps {
   canSelect: boolean;
   selectionMode: boolean;
   onToggleSelection: () => void;
+  onExportCsv: () => void;
+  exportDisabled: boolean;
 }
 
 function ConnectionStatusPill({ status }: { status: BoardConnectionStatus }) {
@@ -101,6 +103,8 @@ export function BoardToolbar({
   canSelect,
   selectionMode,
   onToggleSelection,
+  onExportCsv,
+  exportDisabled,
 }: BoardToolbarProps) {
   const hasFilters =
     search.trim().length > 0 ||
@@ -213,6 +217,18 @@ export function BoardToolbar({
           重置筛选
         </Button>
       ) : null}
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8"
+        onClick={onExportCsv}
+        disabled={exportDisabled}
+      >
+        <Download className="h-3.5 w-3.5" aria-hidden="true" />
+        导出 CSV
+      </Button>
 
       <div className="ml-auto flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
         {canSelect ? (

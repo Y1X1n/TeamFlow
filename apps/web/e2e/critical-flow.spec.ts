@@ -379,6 +379,48 @@ test.describe('critical flows', () => {
     }
   });
 
+  test('board exports filtered tasks as CSV', async ({ page }) => {
+    const token = await authenticate(page);
+    const projectId = await demoProjectId(token);
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const board = await fetch(`${API}/projects/${projectId}/board`, { headers }).then((response) =>
+      expectJson<{
+        columns: Array<{ id: string; name: string; isDone: boolean }>;
+      }>(response, 'load board'),
+    );
+    const column = board.columns.find((item) => !item.isDone);
+    if (!column) throw new Error('Demo project has no non-done column');
+
+    const title = `E2E 导出,任务 ${Date.now()}`;
+    const created = await fetch(`${API}/projects/${projectId}/tasks`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ title, columnId: column.id, estimateMinutes: 90 }),
+    }).then((response) => expectJson<{ id: string }>(response, 'create CSV task'));
+
+    try {
+      await page.goto(`/projects/${projectId}`);
+      await page.getByRole('textbox', { name: '搜索任务标题' }).fill(title);
+      const downloadPromise = page.waitForEvent('download');
+      await page.getByRole('button', { name: '导出 CSV' }).click();
+      const download = await downloadPromise;
+      expect(download.suggestedFilename()).toMatch(/^teamflow-board-\d{4}-\d{2}-\d{2}\.csv$/);
+      const filePath = await download.path();
+      if (!filePath) throw new Error('CSV download path is missing');
+      const content = await readFile(filePath, 'utf8');
+      expect(content.startsWith('\uFEFF任务标题,看板列,负责人,优先级,截止时间,工时估算,标签,状态,更新时间')).toBe(
+        true,
+      );
+      expect(content).toContain(`"${title}"`);
+      expect(content).toContain(`,${column.name},`);
+      expect(content).toContain(',1.5 小时,');
+      const rows = content.split('\r\n').filter((row) => row.length > 0);
+      expect(rows).toHaveLength(2);
+    } finally {
+      await fetch(`${API}/tasks/${created.id}`, { method: 'DELETE', headers });
+    }
+  });
+
   test('settings page lists members and permissions', async ({ page }) => {
     await authenticate(page);
     await page.goto('/');
