@@ -44,11 +44,14 @@ import { CreateTaskDialog } from './create-task-dialog';
 import { TaskCardOverlay } from './task-card';
 import { useBoardSync } from './hooks/use-board-sync';
 import {
+  mergeTaskLabels,
   pruneSelectedIds,
   removeTaskIds,
   runSequentialBulk,
   setTaskSelected,
   summarizeBulkComplete,
+  summarizeBulkDelete,
+  summarizeBulkMove,
   summarizeBulkUpdate,
 } from './board-bulk';
 import type { BulkMutationResult, BulkSummary } from './board-bulk';
@@ -80,6 +83,11 @@ interface BulkCompleteVariables {
   taskIds: string[];
   columnId: string;
   columnName: string;
+}
+
+interface BulkLabelVariables {
+  taskIds: string[];
+  label: string;
 }
 
 const SCREEN_READER_INSTRUCTIONS: ScreenReaderInstructions = {
@@ -159,6 +167,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
   const [groupBy, setGroupBy] = useState<BoardGroupBy>('none');
   const [viewMode, setViewMode] = useState<BoardViewMode>('board');
   const [trashOpen, setTrashOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [quickAddColumnId, setQuickAddColumnId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -217,6 +226,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
     !archived && permissions.includes('task:update') && permissions.includes('task:assign');
   const canUpdate = !archived && permissions.includes('task:update');
   const canSelect = canUpdate || canAssign || canMove;
+  const canDelete = !archived && permissions.includes('task:delete');
   const currentUserId = user?.id ?? null;
 
   const columns = useMemo(
@@ -454,6 +464,89 @@ export function BoardPage({ projectId }: { projectId: string }) {
 
   const bulkPending = bulkUpdateMutation.isPending || bulkCompleteMutation.isPending;
 
+  const bulkMoveMutation = useMutation<BulkMutationResult, Error, BulkCompleteVariables>({
+    mutationFn: ({ taskIds, columnId }) =>
+      runSequentialBulk(taskIds, (taskId) =>
+        api<TaskCard>(`/tasks/${taskId}/move`, {
+          method: 'PATCH',
+          body: { columnId, beforeTaskId: null },
+        }),
+      ),
+    onSuccess: (result, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      for (const taskId of variables.taskIds) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) });
+      }
+      // 移动后任务仍在看板，保留选择便于继续批量操作。
+      notifyBulkSummary(summarizeBulkMove(result, variables.columnName));
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+
+  const bulkLabelMutation = useMutation<
+    BulkMutationResult & { skipped: number },
+    Error,
+    BulkLabelVariables
+  >({
+    mutationFn: async ({ taskIds, label }) => {
+      let skipped = 0;
+      const result = await runSequentialBulk(taskIds, (taskId) => {
+        const task = taskById.get(taskId);
+        if (!task) throw new Error('任务不存在');
+        const { labels, added } = mergeTaskLabels(task.labels, [label]);
+        // 标签已存在或已达上限时不发请求，避免产生无变化的更新活动。
+        if (added.length === 0) {
+          skipped += 1;
+          return Promise.resolve(null);
+        }
+        return api<TaskCard>(`/tasks/${taskId}`, { method: 'PATCH', body: { labels } });
+      });
+      return { ...result, skipped };
+    },
+    onSuccess: (result, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      for (const taskId of variables.taskIds) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) });
+      }
+      if (result.success === 0 && result.failed === 0) {
+        toast.warning(`标签「${variables.label}」已存在或已达上限，未做修改`);
+        return;
+      }
+      notifyBulkSummary(summarizeBulkUpdate(result));
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+
+  const bulkDeleteMutation = useMutation<BulkMutationResult, Error, string[]>({
+    mutationFn: (taskIds) =>
+      runSequentialBulk(taskIds, (taskId) =>
+        api<void>(`/tasks/${taskId}`, { method: 'DELETE' }),
+      ),
+    onSuccess: (result, taskIds) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.trash(projectId) });
+      for (const taskId of taskIds) {
+        queryClient.removeQueries({ queryKey: queryKeys.task(taskId) });
+      }
+      if (result.failed === 0) {
+        setSelectionMode(false);
+        setSelectedIds(new Set<string>());
+      } else if (result.success > 0) {
+        const failedIds = new Set(result.failedTaskIds);
+        const succeededIds = taskIds.filter((taskId) => !failedIds.has(taskId));
+        setSelectedIds((previous) => removeTaskIds(previous, succeededIds));
+      }
+      notifyBulkSummary(summarizeBulkDelete(result));
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+
+  const bulkAllPending =
+    bulkPending ||
+    bulkMoveMutation.isPending ||
+    bulkLabelMutation.isPending ||
+    bulkDeleteMutation.isPending;
+
   const pendingClaimTaskId = claimTaskMutation.isPending
     ? claimTaskMutation.variables?.id
     : undefined;
@@ -517,6 +610,23 @@ export function BoardPage({ projectId }: { projectId: string }) {
       taskIds: visibleSelectedIds,
       columnId: doneColumn.id,
       columnName: doneColumn.name,
+    });
+  };
+
+  const handleBulkMove = (columnId: string, columnName: string) => {
+    if (!canMove || visibleSelectedIds.length === 0) return;
+    bulkMoveMutation.mutate({ taskIds: visibleSelectedIds, columnId, columnName });
+  };
+
+  const handleBulkAddLabel = (label: string) => {
+    if (!canUpdate || visibleSelectedIds.length === 0) return;
+    bulkLabelMutation.mutate({ taskIds: visibleSelectedIds, label });
+  };
+
+  const handleBulkDelete = () => {
+    if (!canDelete || visibleSelectedIds.length === 0) return;
+    bulkDeleteMutation.mutate([...visibleSelectedIds], {
+      onSettled: () => setBulkDeleteOpen(false),
     });
   };
 
@@ -721,14 +831,19 @@ export function BoardPage({ projectId }: { projectId: string }) {
         <BoardBulkActions
           selectedCount={visibleSelectedIds.length}
           members={members}
+          columns={columns}
           canAssign={canAssign}
           canUpdate={canUpdate}
           canMove={canMove}
+          canDelete={canDelete}
           doneColumnName={doneColumn?.name ?? null}
-          pending={bulkPending}
+          pending={bulkAllPending}
           onAssign={handleBulkAssign}
           onPriority={handleBulkPriority}
+          onMove={handleBulkMove}
+          onAddLabel={handleBulkAddLabel}
           onComplete={handleBulkComplete}
+          onDelete={() => setBulkDeleteOpen(true)}
           onClearSelection={handleClearSelection}
         />
       ) : null}
@@ -742,7 +857,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
             columns={columns}
             membersById={membersById}
             selectionMode={selectionMode}
-            selectionDisabled={bulkPending}
+            selectionDisabled={bulkAllPending}
             selectedIds={selectedIds}
             onToggleSelected={handleToggleTaskSelected}
             onOpenTask={openTask}
@@ -786,7 +901,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
                     quickAddOpen={quickAddColumnId === column.id}
                     projectId={projectId}
                     selectionMode={selectionMode}
-                    selectionDisabled={bulkPending}
+                    selectionDisabled={bulkAllPending}
                     selectedIds={selectedIds}
                     onToggleQuickAdd={toggleQuickAdd}
                     onCloseQuickAdd={() => setQuickAddColumnId(null)}
@@ -850,6 +965,17 @@ export function BoardPage({ projectId }: { projectId: string }) {
           }
           setCompletionIntent(null);
         }}
+      />
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onOpenChange={setBulkDeleteOpen}
+        title="批量删除任务"
+        description={`将删除选中的 ${visibleSelectedIds.length} 个任务。删除后可在回收站恢复，依赖关系会保留。`}
+        confirmLabel="删除"
+        destructive
+        loading={bulkDeleteMutation.isPending}
+        onConfirm={handleBulkDelete}
       />
 
       {selectedTaskId ? (

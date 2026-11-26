@@ -1,3 +1,4 @@
+import { TASK_LABELS_MAX, TASK_LABEL_MAX_LENGTH } from '@teamflow/shared/enums';
 import type { TaskCard } from '@/lib/types';
 
 export interface BulkMutationResult {
@@ -128,4 +129,71 @@ export function summarizeBulkComplete(result: BulkMutationResult, columnName: st
     tone: 'warning',
     message: `已移入完成列 ${result.success} 个，${result.failed} 个因依赖/权限失败（「${columnName}」）`,
   };
+}
+
+export function summarizeBulkMove(result: BulkMutationResult, columnName: string): BulkSummary {
+  if (result.success + result.failed === 0) {
+    return { tone: 'warning', message: '没有可移动的任务' };
+  }
+  if (result.failed === 0) {
+    return { tone: 'success', message: `已移动 ${result.success} 个任务到「${columnName}」` };
+  }
+  if (result.success === 0) {
+    return {
+      tone: 'error',
+      message: `批量移动失败：${result.failed} 个任务因依赖或权限未能移入「${columnName}」`,
+    };
+  }
+  return {
+    tone: 'warning',
+    message: `已移动 ${result.success} 个到「${columnName}」，${result.failed} 个因依赖/权限失败`,
+  };
+}
+
+export function summarizeBulkDelete(result: BulkMutationResult): BulkSummary {
+  if (result.success + result.failed === 0) {
+    return { tone: 'warning', message: '没有可删除的任务' };
+  }
+  if (result.failed === 0) {
+    return {
+      tone: 'success',
+      message: `已删除 ${result.success} 个任务，可在回收站恢复`,
+    };
+  }
+  if (result.success === 0) {
+    return { tone: 'error', message: `批量删除失败：${result.failed} 个任务未删除` };
+  }
+  return {
+    tone: 'warning',
+    message: `已删除 ${result.success} 个任务，${result.failed} 个失败`,
+  };
+}
+
+export interface LabelMergeResult {
+  labels: string[];
+  added: string[];
+}
+
+/**
+ * 将新标签追加到已有标签：去重、单个长度与总数上限均按任务标签规则裁剪。
+ */
+export function mergeTaskLabels(
+  existing: readonly string[],
+  additions: readonly string[],
+): LabelMergeResult {
+  const labels = [...existing];
+  const added: string[] = [];
+  const seen = new Set(labels.map((label) => label.toLowerCase()));
+  for (const raw of additions) {
+    const label = raw.trim();
+    if (!label) continue;
+    if (label.length > TASK_LABEL_MAX_LENGTH) continue;
+    if (labels.length >= TASK_LABELS_MAX) break;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    labels.push(label);
+    added.push(label);
+  }
+  return { labels, added };
 }

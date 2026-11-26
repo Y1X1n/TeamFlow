@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  mergeTaskLabels,
   pruneSelectedIds,
   removeTaskIds,
   runSequentialBulk,
   setTaskSelected,
   summarizeBulkComplete,
+  summarizeBulkDelete,
+  summarizeBulkMove,
   summarizeBulkUpdate,
 } from '../board-bulk';
 
@@ -154,5 +157,68 @@ describe('summarizeBulkComplete', () => {
       tone: 'warning',
       message: '没有可移入完成列的任务',
     });
+  });
+});
+
+describe('summarizeBulkMove', () => {
+  it('reports full, partial and total results with the target column', () => {
+    expect(summarizeBulkMove({ success: 2, failed: 0, failedTaskIds: [] }, '进行中')).toEqual({
+      tone: 'success',
+      message: '已移动 2 个任务到「进行中」',
+    });
+    expect(summarizeBulkMove({ success: 1, failed: 1, failedTaskIds: ['t2'] }, '进行中')).toEqual({
+      tone: 'warning',
+      message: '已移动 1 个到「进行中」，1 个因依赖/权限失败',
+    });
+    expect(
+      summarizeBulkMove({ success: 0, failed: 2, failedTaskIds: ['t1', 't2'] }, '进行中'),
+    ).toEqual({
+      tone: 'error',
+      message: '批量移动失败：2 个任务因依赖或权限未能移入「进行中」',
+    });
+    expect(summarizeBulkMove({ success: 0, failed: 0, failedTaskIds: [] }, '进行中')).toEqual({
+      tone: 'warning',
+      message: '没有可移动的任务',
+    });
+  });
+});
+
+describe('summarizeBulkDelete', () => {
+  it('mentions trash recovery on success', () => {
+    expect(summarizeBulkDelete({ success: 2, failed: 0, failedTaskIds: [] })).toEqual({
+      tone: 'success',
+      message: '已删除 2 个任务，可在回收站恢复',
+    });
+  });
+
+  it('reports partial and total failures', () => {
+    expect(summarizeBulkDelete({ success: 1, failed: 1, failedTaskIds: ['t2'] })).toEqual({
+      tone: 'warning',
+      message: '已删除 1 个任务，1 个失败',
+    });
+    expect(summarizeBulkDelete({ success: 0, failed: 2, failedTaskIds: ['t1', 't2'] })).toEqual({
+      tone: 'error',
+      message: '批量删除失败：2 个任务未删除',
+    });
+  });
+});
+
+describe('mergeTaskLabels', () => {
+  it('appends new labels and skips duplicates case-insensitively', () => {
+    const result = mergeTaskLabels(['前端', 'Bug'], ['bug', ' 设计 ']);
+
+    expect(result.labels).toEqual(['前端', 'Bug', '设计']);
+    expect(result.added).toEqual(['设计']);
+  });
+
+  it('stops at the label limit and drops over-long labels', () => {
+    const result = mergeTaskLabels(['a', 'b', 'c', 'd'], ['e', 'f', 'x'.repeat(21)]);
+
+    expect(result.labels).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(result.added).toEqual(['e']);
+  });
+
+  it('reports no additions when everything already exists', () => {
+    expect(mergeTaskLabels(['前端'], ['前端'])).toEqual({ labels: ['前端'], added: [] });
   });
 });
