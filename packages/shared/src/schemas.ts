@@ -8,6 +8,8 @@ import {
   PROJECT_TEMPLATE_IDS,
   REACTION_EMOJIS,
   SUBTASK_TITLE_MAX_LENGTH,
+  TASK_ESTIMATE_MAX_MINUTES,
+  TASK_ESTIMATE_MIN_MINUTES,
   TASK_LABEL_MAX_LENGTH,
   TASK_LABELS_MAX,
   TASK_PRIORITIES,
@@ -38,6 +40,13 @@ const httpAvatarUrlSchema = z
   .max(500)
   .url()
   .refine((value) => /^https?:\/\//i.test(value), '头像必须是 http(s) URL');
+
+const estimateMinutesSchema = z
+  .number()
+  .int()
+  .min(TASK_ESTIMATE_MIN_MINUTES)
+  .max(TASK_ESTIMATE_MAX_MINUTES)
+  .multipleOf(TASK_ESTIMATE_MIN_MINUTES);
 const dataAvatarUrlSchema = z
   .string()
   .trim()
@@ -180,6 +189,7 @@ export const createTaskSchema = z
     priority: z.enum(TASK_PRIORITIES).optional(),
     assigneeId: idSchema.nullable().optional(),
     dueDate: dateTimeSchema.nullable().optional(),
+    estimateMinutes: estimateMinutesSchema.nullable().optional(),
     labels: labelsSchema.optional(),
     columnId: idSchema.optional(),
   })
@@ -193,6 +203,7 @@ export const updateTaskSchema = z
     priority: z.enum(TASK_PRIORITIES).optional(),
     assigneeId: idSchema.nullable().optional(),
     dueDate: dateTimeSchema.nullable().optional(),
+    estimateMinutes: estimateMinutesSchema.nullable().optional(),
     labels: labelsSchema.optional(),
   })
   .strict()

@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "tasks" ADD COLUMN     "estimate_minutes" INTEGER;

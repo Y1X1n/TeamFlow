@@ -30,6 +30,7 @@ import { RichTextEditor } from '@/components/rich-text-editor';
 import {
   getErrorMessage,
   parseDateTimeLocal,
+  parseEstimateHours,
   parseLabelsInput,
   isTaskPriority,
 } from '@/features/tasks/task-utils';
@@ -48,6 +49,7 @@ interface CreateTaskPayload {
   priority?: TaskPriority;
   assigneeId?: string | null;
   dueDate?: string | null;
+  estimateMinutes?: number | null;
   labels?: string[];
   columnId?: string;
 }
@@ -67,6 +69,7 @@ export function CreateTaskDialog({
   const [priority, setPriority] = useState<TaskPriority>('MEDIUM');
   const [assigneeId, setAssigneeId] = useState('unassigned');
   const [dueDate, setDueDate] = useState('');
+  const [estimateHours, setEstimateHours] = useState('');
   const [labels, setLabels] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const columnsRef = useRef(columns);
@@ -81,6 +84,7 @@ export function CreateTaskDialog({
     setPriority('MEDIUM');
     setAssigneeId('unassigned');
     setDueDate('');
+    setEstimateHours('');
     setLabels('');
     setFormError(null);
   }, [open]);
@@ -118,6 +122,11 @@ export function CreateTaskDialog({
       setFormError('截止时间格式不正确');
       return;
     }
+    const estimateResult = parseEstimateHours(estimateHours);
+    if (estimateResult.error) {
+      setFormError(estimateResult.error);
+      return;
+    }
     setFormError(null);
     const payload: CreateTaskPayload = {
       title: trimmedTitle,
@@ -125,6 +134,7 @@ export function CreateTaskDialog({
       columnId,
       assigneeId: assigneeId === 'unassigned' ? null : assigneeId,
       dueDate: dueResult.iso,
+      estimateMinutes: estimateResult.minutes,
       labels: labelsResult.labels,
     };
     if (description && descriptionText.trim()) payload.description = description;
@@ -140,6 +150,7 @@ export function CreateTaskDialog({
         </DialogHeader>
         <form
           className="space-y-4"
+          noValidate
           onSubmit={(event) => {
             event.preventDefault();
             submit();
@@ -231,6 +242,20 @@ export function CreateTaskDialog({
                 type="datetime-local"
                 value={dueDate}
                 onChange={(event) => setDueDate(event.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="create-task-estimate">工时估算（小时）</Label>
+              <Input
+                id="create-task-estimate"
+                type="number"
+                min={0.25}
+                max={168}
+                step={0.25}
+                value={estimateHours}
+                onChange={(event) => setEstimateHours(event.target.value)}
+                placeholder="可选，例如 2"
               />
             </div>
           </div>

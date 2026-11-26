@@ -56,6 +56,7 @@ export interface TaskCard {
   priority: TaskPriority;
   assignee: MemberSummary | null;
   dueDate: string | null;
+  estimateMinutes: number | null;
   labels: string[];
   position: string;
   completedAt: string | null;

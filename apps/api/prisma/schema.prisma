@@ -188,21 +188,22 @@ model BoardColumn {
 }
 
 model Task {
-  id          String       @id @default(cuid())
-  projectId   String       @map("project_id")
-  columnId    String       @map("column_id")
-  title       String
-  description Json?
-  priority    TaskPriority @default(MEDIUM)
-  assigneeId  String?      @map("assignee_id")
-  createdById String       @map("created_by_id")
-  dueDate     DateTime?    @map("due_date") @db.Timestamptz(3)
-  labels      String[]     @default([])
-  position    String
-  completedAt DateTime?    @map("completed_at") @db.Timestamptz(3)
-  deletedAt   DateTime?    @map("deleted_at") @db.Timestamptz(3)
-  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id              String       @id @default(cuid())
+  projectId       String       @map("project_id")
+  columnId        String       @map("column_id")
+  title           String
+  description     Json?
+  priority        TaskPriority @default(MEDIUM)
+  assigneeId      String?      @map("assignee_id")
+  createdById     String       @map("created_by_id")
+  dueDate         DateTime?    @map("due_date") @db.Timestamptz(3)
+  estimateMinutes Int?         @map("estimate_minutes")
+  labels          String[]     @default([])
+  position        String
+  completedAt     DateTime?    @map("completed_at") @db.Timestamptz(3)
+  deletedAt       DateTime?    @map("deleted_at") @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   project               Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   column                BoardColumn      @relation(fields: [columnId], references: [id], onDelete: Restrict)

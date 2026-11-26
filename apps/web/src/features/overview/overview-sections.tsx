@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { describeActivity } from '@/features/activities/activity-description';
+import { formatEstimateMinutes } from '@/features/tasks/task-utils';
 import type { Activity } from '@/lib/types';
 import { avatarColor, cn, formatDateTime } from '@/lib/utils';
 import type { PrioritySlice, UpcomingEntry, WorkloadEntry } from './overview-utils';
@@ -113,13 +114,15 @@ export function WorkloadCard({ workload }: { workload: WorkloadEntry[] }) {
                         <span className="truncate text-sm font-medium">{entry.name}</span>
                       </div>
                       <span className="text-xs tabular-nums text-muted-foreground">
-                        未完成 {entry.open} · 逾期 {entry.overdue} · 已完成 {entry.done}
+                        未完成 {entry.open} · 预计{' '}
+                        {formatEstimateMinutes(entry.openEstimateMinutes) ?? '—'} · 逾期{' '}
+                        {entry.overdue} · 已完成 {entry.done}
                       </span>
                     </div>
                     <div
                       className="flex h-2 overflow-hidden rounded-full bg-muted"
                       role="img"
-                      aria-label={`${entry.name}：未完成 ${entry.open} 项，其中逾期 ${entry.overdue} 项，已完成 ${entry.done} 项`}
+                      aria-label={`${entry.name}：未完成 ${entry.open} 项，预计工时 ${formatEstimateMinutes(entry.openEstimateMinutes) ?? '未估算'}，其中逾期 ${entry.overdue} 项，已完成 ${entry.done} 项`}
                     >
                       {entry.done > 0 ? (
                         <div

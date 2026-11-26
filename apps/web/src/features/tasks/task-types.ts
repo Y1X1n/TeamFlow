@@ -1,7 +1,7 @@
 import { TASK_PRIORITY_LABELS } from '@teamflow/shared/enums';
 import { formatDate } from '@/lib/utils';
 import type { TaskComment } from '@/lib/types';
-import { isTaskPriority } from './task-utils';
+import { formatEstimateMinutes, isTaskPriority } from './task-utils';
 
 export const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   PROJECT_CREATED: '创建项目',
@@ -46,6 +46,13 @@ function readPair(value: unknown): [string | null, string | null] | null {
   const to = value[1];
   const normalize = (item: unknown): string | null => (typeof item === 'string' ? item : null);
   return [normalize(from), normalize(to)];
+}
+
+function readEstimatePair(value: unknown): [number | null, number | null] | null {
+  if (!Array.isArray(value) || value.length < 2) return null;
+  const normalize = (item: unknown): number | null =>
+    typeof item === 'number' && Number.isFinite(item) ? item : null;
+  return [normalize(value[0]), normalize(value[1])];
 }
 
 function truncate(value: string, max = 24): string {
@@ -93,6 +100,12 @@ function describeChanges(changes: unknown): string | null {
   const dueChange = readPair(record.dueDate);
   if (dueChange) {
     parts.push(`截止时间：${formatDate(dueChange[0])} → ${formatDate(dueChange[1])}`);
+  }
+  const estimateChange = readEstimatePair(record.estimateMinutes);
+  if (estimateChange) {
+    parts.push(
+      `工时估算：${formatEstimateMinutes(estimateChange[0]) ?? '未估算'} → ${formatEstimateMinutes(estimateChange[1]) ?? '未估算'}`,
+    );
   }
   if (Array.isArray(record.assigneeId)) {
     parts.push('负责人已变更');

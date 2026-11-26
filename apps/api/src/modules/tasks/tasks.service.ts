@@ -304,6 +304,7 @@ export class TasksService {
           assigneeId: input.assigneeId ?? null,
           createdById: userId,
           dueDate: input.dueDate ? new Date(input.dueDate) : null,
+          estimateMinutes: input.estimateMinutes ?? null,
           labels: input.labels ?? [],
           position,
           completedAt,
@@ -377,6 +378,7 @@ export class TasksService {
           assigneeId,
           createdById: userId,
           dueDate: source.dueDate,
+          estimateMinutes: source.estimateMinutes,
           labels: source.labels,
           position,
           completedAt,
@@ -464,6 +466,11 @@ export class TasksService {
     if (input.dueDate !== undefined) {
       changes.dueDate = [task.dueDate?.toISOString() ?? null, input.dueDate];
     }
+    if (input.estimateMinutes !== undefined) {
+      if (input.estimateMinutes !== (task.estimateMinutes ?? null)) {
+        changes.estimateMinutes = [task.estimateMinutes ?? null, input.estimateMinutes];
+      }
+    }
     if (assigneeChanging) {
       changes.assigneeId = [task.assigneeId, input.assigneeId ?? null];
     }
@@ -480,6 +487,7 @@ export class TasksService {
       if (input.assigneeId !== undefined) data.assigneeId = input.assigneeId;
       if (input.dueDate !== undefined)
         data.dueDate = input.dueDate ? new Date(input.dueDate) : null;
+      if (input.estimateMinutes !== undefined) data.estimateMinutes = input.estimateMinutes;
       if (input.labels !== undefined) data.labels = input.labels;
       await tx.task.update({ where: { id: task.id }, data });
       if (nextAssign) {
