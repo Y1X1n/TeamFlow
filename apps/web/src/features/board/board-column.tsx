@@ -3,11 +3,18 @@
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CheckCircle2, Plus } from 'lucide-react';
+import { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import type { BoardColumn, TaskCard } from '@/lib/types';
+import { UserAvatar } from '@/components/ui/avatar';
+import { avatarColor, cn } from '@/lib/utils';
+import type { BoardColumn, MemberSummary, TaskCard } from '@/lib/types';
+import { PriorityBadge } from '@/features/tasks/priority-badge';
+import { TaskLabelBadge } from '@/features/tasks/task-label';
+import { isTaskPriority } from '@/features/tasks/task-utils';
 import { COLUMN_DROPPABLE_PREFIX, columnDotClass } from './board-utils';
+import { groupTasksForColumn, UNLABELED_GROUP_KEY } from './board-grouping';
+import type { BoardGroupBy, BoardTaskGroup } from './board-grouping';
 import { QuickAddTask } from './quick-add-task';
 import { SortableTaskCard } from './task-card';
 
@@ -15,6 +22,8 @@ interface BoardColumnViewProps {
   column: BoardColumn;
   colorIndex: number;
   tasks: TaskCard[];
+  groupBy: BoardGroupBy;
+  membersById: Map<string, MemberSummary>;
   canMove: boolean;
   canAssign: boolean;
   canCreate: boolean;
@@ -34,10 +43,53 @@ interface BoardColumnViewProps {
   onDuplicateTask: (task: TaskCard) => void;
 }
 
+function BoardGroupHeader({
+  group,
+  groupBy,
+}: {
+  group: BoardTaskGroup;
+  groupBy: Exclude<BoardGroupBy, 'none'>;
+}) {
+  const assignee = group.tasks[0]?.assignee ?? null;
+
+  return (
+    <div className="flex items-center gap-1.5 px-1">
+      {groupBy === 'assignee' && assignee ? (
+        <UserAvatar
+          name={assignee.name}
+          src={assignee.avatarUrl}
+          color={avatarColor(assignee.userId)}
+          className="h-5 w-5"
+        />
+      ) : null}
+      {groupBy === 'priority' && isTaskPriority(group.key) ? (
+        <PriorityBadge priority={group.key} />
+      ) : null}
+      {groupBy === 'label' ? (
+        group.key === UNLABELED_GROUP_KEY ? (
+          <Badge variant="muted" className="px-1.5 py-0 text-[10px] font-normal">
+            {group.label}
+          </Badge>
+        ) : (
+          <TaskLabelBadge label={group.label} />
+        )
+      ) : null}
+      {groupBy === 'assignee' ? (
+        <span className="truncate text-xs font-medium text-muted-foreground">{group.label}</span>
+      ) : null}
+      <Badge variant="muted" className="ml-auto px-1.5 py-0 text-[10px]">
+        {group.tasks.length}
+      </Badge>
+    </div>
+  );
+}
+
 export function BoardColumnView({
   column,
   colorIndex,
   tasks,
+  groupBy,
+  membersById,
   canMove,
   canAssign,
   canCreate,
@@ -60,6 +112,38 @@ export function BoardColumnView({
     id: `${COLUMN_DROPPABLE_PREFIX}${column.id}`,
     data: { type: 'column', columnId: column.id },
   });
+
+  const activeGroupBy = groupBy === 'none' ? null : groupBy;
+
+  const groups = useMemo(
+    () => (activeGroupBy ? groupTasksForColumn(tasks, activeGroupBy, membersById) : []),
+    [activeGroupBy, tasks, membersById],
+  );
+
+  const sortableItems =
+    activeGroupBy === null
+      ? tasks.map((task) => task.id)
+      : groups.flatMap((group) => group.tasks.map((task) => task.id));
+
+  const renderTaskCard = (task: TaskCard, dragEnabled: boolean) => (
+    <SortableTaskCard
+      key={task.id}
+      task={task}
+      canMove={dragEnabled}
+      canAssign={canAssign}
+      canCreate={canCreate}
+      currentUserId={currentUserId}
+      nextColumn={nextColumn}
+      lockedByName={lockedTaskNames[task.id]}
+      claimPending={pendingClaimTaskId === task.id}
+      movePending={pendingMoveTaskId === task.id}
+      duplicatePending={pendingDuplicateTaskId === task.id}
+      onOpen={onOpenTask}
+      onClaim={onClaimTask}
+      onMove={onMoveTask}
+      onDuplicate={onDuplicateTask}
+    />
+  );
 
   return (
     <section
@@ -111,38 +195,31 @@ export function BoardColumnView({
             onClose={onCloseQuickAdd}
           />
         ) : null}
-        <SortableContext
-          items={tasks.map((task) => task.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          {tasks.map((task) => (
-            <SortableTaskCard
-              key={task.id}
-              task={task}
-              canMove={canMove}
-              canAssign={canAssign}
-              canCreate={canCreate}
-              currentUserId={currentUserId}
-              nextColumn={nextColumn}
-              lockedByName={lockedTaskNames[task.id]}
-              claimPending={pendingClaimTaskId === task.id}
-              movePending={pendingMoveTaskId === task.id}
-              duplicatePending={pendingDuplicateTaskId === task.id}
-              onOpen={onOpenTask}
-              onClaim={onClaimTask}
-              onMove={onMoveTask}
-              onDuplicate={onDuplicateTask}
-            />
-          ))}
+        <SortableContext items={sortableItems} strategy={verticalListSortingStrategy}>
+          {activeGroupBy === null
+            ? tasks.map((task) => renderTaskCard(task, canMove))
+            : groups.map((group) => (
+                <div
+                  key={group.key}
+                  role="group"
+                  aria-label={`${group.label}：${group.tasks.length} 个任务`}
+                  className="space-y-2"
+                >
+                  <BoardGroupHeader group={group} groupBy={activeGroupBy} />
+                  <div className="space-y-2">
+                    {group.tasks.map((task) => renderTaskCard(task, false))}
+                  </div>
+                </div>
+              ))}
         </SortableContext>
         {tasks.length === 0 ? (
           <div
             className={cn(
               'flex min-h-[96px] items-center justify-center rounded-lg border border-dashed px-3 py-6 text-center text-xs text-muted-foreground',
-              isOver && 'border-primary text-primary',
+              isOver && activeGroupBy === null && 'border-primary text-primary',
             )}
           >
-            拖拽任务到此处
+            {activeGroupBy ? '暂无任务' : '拖拽任务到此处'}
           </div>
         ) : null}
         <div className="h-2" aria-hidden="true" />
