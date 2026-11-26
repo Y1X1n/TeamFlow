@@ -248,6 +248,48 @@ describe('TeamFlow API (e2e)', () => {
     expect(restored.body.code).toBe('DEPENDENCY_CYCLE');
   });
 
+  it('records actual minutes and keeps them out of duplicated tasks', async () => {
+    const board = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/board`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const todo = board.body.columns.find((column: { name: string }) => column.name === '待办');
+
+    const created = await ownerAgent
+      .post(`/api/v1/projects/${projectId}/tasks`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ title: 'E2E 实际工时', columnId: todo.id, estimateMinutes: 60, actualMinutes: 90 });
+    expect(created.status).toBe(201);
+    expect(created.body.estimateMinutes).toBe(60);
+    expect(created.body.actualMinutes).toBe(90);
+
+    const invalid = await ownerAgent
+      .patch(`/api/v1/tasks/${created.body.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ actualMinutes: 17 });
+    expect([400, 422]).toContain(invalid.status);
+
+    const cleared = await ownerAgent
+      .patch(`/api/v1/tasks/${created.body.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ actualMinutes: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.actualMinutes).toBeNull();
+
+    const updated = await ownerAgent
+      .patch(`/api/v1/tasks/${created.body.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ actualMinutes: 120 });
+    expect(updated.status).toBe(200);
+    expect(updated.body.actualMinutes).toBe(120);
+
+    const duplicate = await ownerAgent
+      .post(`/api/v1/tasks/${created.body.id}/duplicate`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(duplicate.status).toBe(201);
+    expect(duplicate.body.estimateMinutes).toBe(60);
+    expect(duplicate.body.actualMinutes).toBeNull();
+  });
+
   it('invites a viewer and enforces permissions', async () => {
     const viewerRegister = await viewerAgent.post('/api/v1/auth/register').send({
       email: viewerEmail,

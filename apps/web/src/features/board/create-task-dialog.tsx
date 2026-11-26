@@ -246,7 +246,7 @@ export function CreateTaskDialog({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="create-task-estimate">工时估算（小时）</Label>
+              <Label htmlFor="create-task-estimate">预计工时（小时）</Label>
               <Input
                 id="create-task-estimate"
                 type="number"

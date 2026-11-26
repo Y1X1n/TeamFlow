@@ -78,7 +78,7 @@ test.describe('critical flows', () => {
       const dialog = page.getByRole('dialog');
       await expect(dialog.getByText('新建任务')).toBeVisible();
       await dialog.getByLabel('标题').fill(title);
-      await dialog.getByLabel('工时估算（小时）').fill('2');
+      await dialog.getByLabel('预计工时（小时）').fill('2');
       await dialog.getByRole('button', { name: '创建任务' }).click();
       await expect(page.getByText(title).first()).toBeVisible({ timeout: 15_000 });
       const createdCard = page.getByRole('button', { name: new RegExp(`打开任务：${title}`) });
@@ -338,12 +338,12 @@ test.describe('critical flows', () => {
       await page.goto(`/projects/${projectId}?task=${created.id}`);
       const dialog = page.getByRole('dialog');
       await expect(dialog.getByText(title).first()).toBeVisible({ timeout: 15_000 });
-      const estimateInput = dialog.getByLabel('工时估算（小时）');
+      const estimateInput = dialog.getByLabel('预计工时（小时）');
       await expect(estimateInput).toHaveValue('1');
       await expect(dialog.getByText('预计投入 1 小时')).toBeVisible();
 
       await estimateInput.fill('1.5');
-      await dialog.getByRole('button', { name: '保存', exact: true }).click();
+      await dialog.getByTestId('save-estimate-hours').click();
       await expect(dialog.getByText('预计投入 1.5 小时')).toBeVisible({ timeout: 15_000 });
       await expect
         .poll(
@@ -358,8 +358,28 @@ test.describe('critical flows', () => {
         )
         .toBe(90);
 
+      const actualInput = dialog.getByLabel('实际工时（小时）');
+      await actualInput.fill('2');
+      await dialog.getByTestId('save-actual-hours').click();
+      await expect(
+        dialog.getByText('实际投入 2 小时 · 实际超预计 0.5 小时'),
+      ).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(
+          async () => {
+            const detail = await fetch(`${API}/tasks/${created.id}`, { headers }).then(
+              (response) =>
+                expectJson<{ actualMinutes: number | null }>(response, 'poll actual'),
+            );
+            return detail.actualMinutes;
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(120);
+
       await page.keyboard.press('Escape');
-      await expect(page.getByText('1.5h').first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText('预计 1.5h').first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText('实际 2h').first()).toBeVisible({ timeout: 10_000 });
 
       await page.goto(`/projects/${projectId}/overview`);
       await expect(page.getByText('成员工作负载')).toBeVisible();
@@ -369,10 +389,15 @@ test.describe('critical flows', () => {
         method: 'POST',
         headers,
       }).then((response) =>
-        expectJson<{ id: string; estimateMinutes: number | null }>(response, 'duplicate task'),
+        expectJson<{
+          id: string;
+          estimateMinutes: number | null;
+          actualMinutes: number | null;
+        }>(response, 'duplicate task'),
       );
       copyId = copy.id;
       expect(copy.estimateMinutes).toBe(90);
+      expect(copy.actualMinutes).toBeNull();
     } finally {
       if (copyId) await fetch(`${API}/tasks/${copyId}`, { method: 'DELETE', headers });
       await fetch(`${API}/tasks/${created.id}`, { method: 'DELETE', headers });
@@ -395,7 +420,12 @@ test.describe('critical flows', () => {
     const created = await fetch(`${API}/projects/${projectId}/tasks`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ title, columnId: column.id, estimateMinutes: 90 }),
+      body: JSON.stringify({
+        title,
+        columnId: column.id,
+        estimateMinutes: 90,
+        actualMinutes: 75,
+      }),
     }).then((response) => expectJson<{ id: string }>(response, 'create CSV task'));
 
     try {
@@ -408,12 +438,14 @@ test.describe('critical flows', () => {
       const filePath = await download.path();
       if (!filePath) throw new Error('CSV download path is missing');
       const content = await readFile(filePath, 'utf8');
-      expect(content.startsWith('\uFEFF任务标题,看板列,负责人,优先级,截止时间,工时估算,标签,状态,更新时间')).toBe(
-        true,
-      );
+      expect(
+        content.startsWith(
+          '\uFEFF任务标题,看板列,负责人,优先级,截止时间,预计工时,实际工时,标签,状态,更新时间',
+        ),
+      ).toBe(true);
       expect(content).toContain(`"${title}"`);
       expect(content).toContain(`,${column.name},`);
-      expect(content).toContain(',1.5 小时,');
+      expect(content).toContain(',1.5 小时,1.25 小时,');
       const rows = content.split('\r\n').filter((row) => row.length > 0);
       expect(rows).toHaveLength(2);
     } finally {
@@ -456,6 +488,7 @@ test.describe('critical flows', () => {
 
       await expect(page.getByRole('table')).toBeVisible();
       await expect(page.getByRole('columnheader').filter({ hasText: '任务' })).toBeVisible();
+      await expect(page.getByRole('columnheader').filter({ hasText: '实际工时' })).toBeVisible();
       await expect(page.getByLabel(/拖动任务：/)).toHaveCount(0);
 
       const rows = page.getByRole('row').filter({ hasText: `E2E 列表` });

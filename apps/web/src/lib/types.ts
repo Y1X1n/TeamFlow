@@ -57,6 +57,7 @@ export interface TaskCard {
   assignee: MemberSummary | null;
   dueDate: string | null;
   estimateMinutes: number | null;
+  actualMinutes: number | null;
   labels: string[];
   position: string;
   completedAt: string | null;
@@ -80,6 +81,7 @@ export interface TrashTask {
   assignee: { userId: string; name: string; avatarUrl: string | null } | null;
   dueDate: string | null;
   estimateMinutes: number | null;
+  actualMinutes: number | null;
   labels: string[];
   deletedAt: string;
 }

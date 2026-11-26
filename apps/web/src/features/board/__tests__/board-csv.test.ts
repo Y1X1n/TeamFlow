@@ -13,6 +13,7 @@ function makeTask(overrides: Partial<TaskCard> & Pick<TaskCard, 'id'>): TaskCard
     assignee: null,
     dueDate: null,
     estimateMinutes: null,
+    actualMinutes: null,
     labels: [],
     position: 'a0',
     completedAt: null,
@@ -64,6 +65,7 @@ describe('buildBoardCsv', () => {
           assignee: { userId: 'u1', name: 'Alice', avatarUrl: null, role: 'MEMBER' },
           priority: 'HIGH',
           estimateMinutes: 90,
+          actualMinutes: 75,
           labels: ['前端', '紧急'],
         }),
       ],
@@ -71,10 +73,10 @@ describe('buildBoardCsv', () => {
       members,
     );
 
-    expect(csv.startsWith('\uFEFF任务标题,看板列,负责人,优先级,截止时间,工时估算,标签,状态,更新时间\r\n')).toBe(
+    expect(csv.startsWith('\uFEFF任务标题,看板列,负责人,优先级,截止时间,预计工时,实际工时,标签,状态,更新时间\r\n')).toBe(
       true,
     );
-    expect(csv).toContain('"完成,登录页",待办,Alice,高,,1.5 小时,前端、紧急,未完成,');
+    expect(csv).toContain('"完成,登录页",待办,Alice,高,,1.5 小时,1.25 小时,前端、紧急,未完成,');
     expect(csv.endsWith('\r\n')).toBe(true);
   });
 });

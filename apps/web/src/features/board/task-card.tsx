@@ -63,10 +63,12 @@ export function TaskCardView({
   const overdue = isOverdue(task.dueDate, task.completedAt);
   const staleDays = staleTaskDays(task.updatedAt, task.completedAt);
   const estimateLabel = formatEstimateShort(task.estimateMinutes);
+  const actualLabel = formatEstimateShort(task.actualMinutes);
   const labels = task.labels.slice(0, 3);
   const extraLabels = task.labels.length - labels.length;
   const a11yParts = [task.title, `${TASK_PRIORITY_LABELS[task.priority]}优先级`];
   if (estimateLabel) a11yParts.push(`预计 ${estimateLabel}`);
+  if (actualLabel) a11yParts.push(`实际 ${actualLabel}`);
   a11yParts.push(task.assignee ? `负责人 ${task.assignee.name}` : '未指派');
   if (staleDays !== null) a11yParts.push(`已 ${staleDays} 天未更新`);
   if (task.blockedByCount > 0) a11yParts.push(`被 ${task.blockedByCount} 个任务阻塞`);
@@ -86,7 +88,17 @@ export function TaskCardView({
             title={`预计工时 ${estimateLabel}`}
           >
             <Clock3 className="h-3 w-3" aria-hidden="true" />
-            {estimateLabel}
+            预计 {estimateLabel}
+          </Badge>
+        ) : null}
+        {actualLabel ? (
+          <Badge
+            variant="outline"
+            className="gap-0.5 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+            title={`实际工时 ${actualLabel}`}
+          >
+            <Clock3 className="h-3 w-3" aria-hidden="true" />
+            实际 {actualLabel}
           </Badge>
         ) : null}
         {task.completedAt ? (

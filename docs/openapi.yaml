@@ -825,6 +825,7 @@ paths:
       description: |
         复制标题（追加「（副本）」）、描述、优先级、标签、截止时间与子任务；子任务默认未完成。
         复制负责人需要 task:assign，否则副本未指派。若源任务位于完成列，副本放入第一个未完成列。
+        预计工时复制，实际工时清空。
       responses:
         '201':
           description: 已创建副本，返回副本详情。
@@ -2101,7 +2102,7 @@ components:
       required:
         [id, projectId, columnId, title, priority, labels, position, commentCount,
          attachmentCount, subtaskTotal, subtaskDone, blockedByCount, blockingCount,
-         estimateMinutes, createdAt, updatedAt]
+         estimateMinutes, actualMinutes, createdAt, updatedAt]
       properties:
         id: { type: string }
         projectId: { type: string }
@@ -2119,6 +2120,12 @@ components:
           maximum: 10080
           multipleOf: 15
           description: 预计工时（分钟，15 分钟粒度）
+        actualMinutes:
+          type: [integer, 'null']
+          minimum: 15
+          maximum: 10080
+          multipleOf: 15
+          description: 实际工时（分钟，15 分钟粒度）
         labels:
           type: array
           maxItems: 5
@@ -2141,7 +2148,7 @@ components:
       type: object
       required:
         [id, projectId, title, columnId, columnName, priority, assignee, dueDate,
-         estimateMinutes, labels, deletedAt]
+         estimateMinutes, actualMinutes, labels, deletedAt]
       properties:
         id: { type: string }
         projectId: { type: string }
@@ -2160,6 +2167,7 @@ components:
             - { type: 'null' }
         dueDate: { type: [string, 'null'], format: date-time }
         estimateMinutes: { type: [integer, 'null'], minimum: 15, maximum: 10080, multipleOf: 15 }
+        actualMinutes: { type: [integer, 'null'], minimum: 15, maximum: 10080, multipleOf: 15 }
         labels:
           type: array
           maxItems: 5
@@ -2242,6 +2250,11 @@ components:
           minimum: 15
           maximum: 10080
           multipleOf: 15
+        actualMinutes:
+          type: [integer, 'null']
+          minimum: 15
+          maximum: 10080
+          multipleOf: 15
         labels:
           type: array
           maxItems: 5
@@ -2259,6 +2272,11 @@ components:
         assigneeId: { type: [string, 'null'] }
         dueDate: { type: [string, 'null'], format: date-time }
         estimateMinutes:
+          type: [integer, 'null']
+          minimum: 15
+          maximum: 10080
+          multipleOf: 15
+        actualMinutes:
           type: [integer, 'null']
           minimum: 15
           maximum: 10080

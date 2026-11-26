@@ -114,6 +114,18 @@ export function formatEstimateShort(value: number | null): string | null {
   return `${text}h`;
 }
 
+export function describeEstimateVariance(
+  actualMinutes: number | null,
+  estimateMinutes: number | null,
+): string | null {
+  if (actualMinutes === null || estimateMinutes === null) return null;
+  const difference = actualMinutes - estimateMinutes;
+  if (difference === 0) return '实际与预计一致';
+  const absolute = Math.abs(difference);
+  const amount = formatEstimateMinutes(absolute) ?? `${absolute} 分钟`;
+  return difference > 0 ? `实际超预计 ${amount}` : `实际比预计少 ${amount}`;
+}
+
 export type TaskCountField = 'commentCount' | 'attachmentCount';
 
 export function adjustTaskCount(

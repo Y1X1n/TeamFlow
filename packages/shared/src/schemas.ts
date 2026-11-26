@@ -190,6 +190,7 @@ export const createTaskSchema = z
     assigneeId: idSchema.nullable().optional(),
     dueDate: dateTimeSchema.nullable().optional(),
     estimateMinutes: estimateMinutesSchema.nullable().optional(),
+    actualMinutes: estimateMinutesSchema.nullable().optional(),
     labels: labelsSchema.optional(),
     columnId: idSchema.optional(),
   })
@@ -204,6 +205,7 @@ export const updateTaskSchema = z
     assigneeId: idSchema.nullable().optional(),
     dueDate: dateTimeSchema.nullable().optional(),
     estimateMinutes: estimateMinutesSchema.nullable().optional(),
+    actualMinutes: estimateMinutesSchema.nullable().optional(),
     labels: labelsSchema.optional(),
   })
   .strict()

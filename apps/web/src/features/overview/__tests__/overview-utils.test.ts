@@ -13,6 +13,7 @@ function makeTask(overrides: Partial<TaskCard> & Pick<TaskCard, 'id'>): TaskCard
     assignee: null,
     dueDate: null,
     estimateMinutes: null,
+    actualMinutes: null,
     labels: [],
     position: 'a0',
     completedAt: null,

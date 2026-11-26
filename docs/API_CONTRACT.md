@@ -172,6 +172,7 @@
 
 - 标题 1–200；描述 ≤100KB；标签 ≤5 个、单个 1–20；截止时间可为过去。
 - 工时估算 `estimateMinutes`：可选整数 15–10080 分钟，且为 15 的整数倍；`null` 表示未估算/清空；编辑需 `task:update`。
+- 实际工时 `actualMinutes`：边界与预计相同；`null` 表示未记录/清空；创建时可传入，复制任务时清空；编辑需 `task:update`。
 - `assigneeId` 必须为项目成员 → 否则 `422 ASSIGNEE_NOT_MEMBER`；`null` 表示取消指派。
 - 看板单项目最多返回 1000 个未删除任务（超出按列位置截断并在响应头 `X-Board-Truncated: true` 标记）。
 - 任务软删除后从所有列表/统计排除；详情返回 404。
@@ -234,6 +235,7 @@ Content-Type: application/json
   "assignee": { "userId": "clu_2", "name": "Bob", "avatarUrl": null, "role": "MEMBER" },
   "dueDate": "2026-11-25T12:00:00.000Z",
   "estimateMinutes": 120,
+  "actualMinutes": 105,
   "labels": ["前端"],
   "position": "z1",
   "completedAt": "2026-11-22T10:05:00.000Z",

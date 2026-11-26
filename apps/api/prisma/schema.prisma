@@ -199,6 +199,7 @@ model Task {
   createdById     String       @map("created_by_id")
   dueDate         DateTime?    @map("due_date") @db.Timestamptz(3)
   estimateMinutes Int?         @map("estimate_minutes")
+  actualMinutes   Int?         @map("actual_minutes")
   labels          String[]     @default([])
   position        String
   completedAt     DateTime?    @map("completed_at") @db.Timestamptz(3)
