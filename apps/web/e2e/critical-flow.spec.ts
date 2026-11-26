@@ -306,6 +306,82 @@ test.describe('critical flows', () => {
     }
   });
 
+  test('bulk move, label and delete apply to selected tasks', async ({ page }) => {
+    const token = await authenticate(page);
+    const projectId = await demoProjectId(token);
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const board = await fetch(`${API}/projects/${projectId}/board`, { headers }).then((response) =>
+      expectJson<{
+        columns: Array<{ id: string; name: string; isDone: boolean }>;
+      }>(response, 'load board'),
+    );
+    const todo = board.columns.find((column) => !column.isDone);
+    const doing = board.columns.filter((column) => !column.isDone)[1];
+    if (!todo || !doing) throw new Error('Demo project needs two non-done columns');
+
+    const suffix = Date.now();
+    const titles = [`E2E 批量移动 ${suffix}`, `E2E 批量删除 ${suffix}`];
+    const created: Array<{ id: string }> = [];
+    try {
+      for (const title of titles) {
+        const task = await fetch(`${API}/projects/${projectId}/tasks`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ title, columnId: todo.id }),
+        }).then((response) => expectJson<{ id: string }>(response, `create task ${title}`));
+        created.push(task);
+      }
+
+      await page.goto('/');
+      await expect(page.getByRole('link', { name: /打开项目/ }).first()).toBeVisible();
+      await openDemoProject(page);
+      await page.getByRole('button', { name: '批量选择', exact: true }).click();
+      for (const title of titles) {
+        await page.getByRole('checkbox', { name: `选择任务：${title}` }).check();
+      }
+      const bulk = page.getByRole('region', { name: '批量操作' });
+
+      await page.getByRole('combobox', { name: '批量移动到看板列' }).click();
+      await page.getByRole('option', { name: doing.name }).click();
+      await expect(page.getByText(/已移动 2 个任务到/).first()).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByLabel(`列：${doing.name}`).getByText(titles[0]!)).toBeVisible({
+        timeout: 10_000,
+      });
+
+      await page.getByLabel('批量加标签').fill('批量标签');
+      await page.getByRole('button', { name: '添加', exact: true }).click();
+      await expect(page.getByText(/已更新 2 个任务/).first()).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(
+          async () => {
+            const latest = await fetch(`${API}/projects/${projectId}/board`, { headers }).then(
+              (response) =>
+                expectJson<{
+                  tasks: Array<{ title: string; labels: string[] }>;
+                }>(response, 'poll labels'),
+            );
+            return titles.every((title) =>
+              latest.tasks.find((task) => task.title === title)?.labels.includes('批量标签'),
+            );
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+
+      await bulk.getByRole('button', { name: '删除', exact: true }).click();
+      const confirm = page.getByRole('dialog', { name: '批量删除任务' });
+      await expect(confirm).toBeVisible();
+      await confirm.getByRole('button', { name: '删除', exact: true }).click();
+      await expect(page.getByText(/已删除 2 个任务/).first()).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole('region', { name: '批量操作' })).toHaveCount(0);
+      await expect(page.getByText(titles[0]!)).toHaveCount(0);
+    } finally {
+      for (const task of created) {
+        await fetch(`${API}/tasks/${task.id}`, { method: 'DELETE', headers });
+      }
+    }
+  });
+
   test('task estimate can be edited in the drawer and shown on the card', async ({ page }) => {
     const token = await authenticate(page);
     const projectId = await demoProjectId(token);
