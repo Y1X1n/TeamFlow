@@ -39,6 +39,7 @@ import { BoardColumnView } from './board-column';
 import { BoardHeader } from './board-header';
 import { BoardToolbar } from './board-toolbar';
 import { BoardBulkActions } from './board-bulk-actions';
+import { BoardTrashDialog } from './board-trash-dialog';
 import { CreateTaskDialog } from './create-task-dialog';
 import { TaskCardOverlay } from './task-card';
 import { useBoardSync } from './hooks/use-board-sync';
@@ -157,6 +158,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
   const [dueFilter, setDueFilter] = useState<DueFilter>('all');
   const [groupBy, setGroupBy] = useState<BoardGroupBy>('none');
   const [viewMode, setViewMode] = useState<BoardViewMode>('board');
+  const [trashOpen, setTrashOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [quickAddColumnId, setQuickAddColumnId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -711,6 +713,8 @@ export function BoardPage({ projectId }: { projectId: string }) {
         onToggleSelection={handleToggleSelectionMode}
         onExportCsv={handleExportCsv}
         exportDisabled={filteredTasks.length === 0}
+        canOpenTrash={permissions.includes('task:delete')}
+        onOpenTrash={() => setTrashOpen(true)}
       />
 
       {selectionMode && visibleSelectedIds.length > 0 ? (
@@ -808,6 +812,13 @@ export function BoardPage({ projectId }: { projectId: string }) {
         projectId={projectId}
         columns={columns}
         members={members}
+      />
+
+      <BoardTrashDialog
+        open={trashOpen}
+        onOpenChange={setTrashOpen}
+        projectId={projectId}
+        canRestore={!archived}
       />
 
       <ConfirmDialog

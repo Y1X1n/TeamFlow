@@ -701,6 +701,26 @@ paths:
         '409': { $ref: '#/components/responses/Problem409' }
         '422': { $ref: '#/components/responses/Problem422' }
 
+  /projects/{projectId}/trash:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: listTrash
+      tags: [Tasks]
+      summary: 项目回收站（需要 task:delete）
+      description: 返回项目全部软删除任务，按删除时间倒序。
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TrashTask' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+
   /tasks/{taskId}:
     parameters:
       - $ref: '#/components/parameters/TaskId'
@@ -743,6 +763,25 @@ paths:
       summary: 删除任务（软删除，需要 task:delete）
       responses:
         '204': { description: 已删除 }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+
+  /tasks/{taskId}/restore:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      operationId: restoreTask
+      tags: [Tasks]
+      summary: 恢复软删除任务（需要 task:delete）
+      description: 恢复到原列末尾；依赖关系保留；归档项目返回 409。
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskDetail' }
         '401': { $ref: '#/components/responses/Problem401' }
         '403': { $ref: '#/components/responses/Problem403' }
         '404': { $ref: '#/components/responses/Problem404' }
@@ -2098,6 +2137,34 @@ components:
           description: 当前被本任务阻塞且未完成的下游任务数量
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    TrashTask:
+      type: object
+      required:
+        [id, projectId, title, columnId, columnName, priority, assignee, dueDate,
+         estimateMinutes, labels, deletedAt]
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        title: { type: string }
+        columnId: { type: string }
+        columnName: { type: string }
+        priority: { $ref: '#/components/schemas/TaskPriority' }
+        assignee:
+          anyOf:
+            - type: object
+              required: [userId, name, avatarUrl]
+              properties:
+                userId: { type: string }
+                name: { type: string }
+                avatarUrl: { type: [string, 'null'] }
+            - { type: 'null' }
+        dueDate: { type: [string, 'null'], format: date-time }
+        estimateMinutes: { type: [integer, 'null'], minimum: 15, maximum: 10080, multipleOf: 15 }
+        labels:
+          type: array
+          maxItems: 5
+          items: { type: string, minLength: 1, maxLength: 20 }
+        deletedAt: { type: string, format: date-time }
     TaskDetail:
       allOf:
         - $ref: '#/components/schemas/TaskCard'
@@ -2340,6 +2407,7 @@ components:
             - TASK_REOPENED
             - TASK_ASSIGNED
             - TASK_DELETED
+            - TASK_RESTORED
             - COMMENT_CREATED
             - COMMENT_UPDATED
             - COMMENT_DELETED

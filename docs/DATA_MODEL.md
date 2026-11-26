@@ -519,3 +519,12 @@ payload 不允许包含密码、访问令牌、完整文件内容。例外：`IN
 
 - `20261125142207_v1_6_member_skills`（`project_members.skills` + `ActivityType.MEMBER_SKILLS_CHANGED`）
 - v1.5 与 v1.7 无数据库迁移。
+
+## 14. v1.8–v1.14 增量
+
+- `tasks.estimate_minutes`：`INTEGER NULL`，15–10080 分钟且为 15 的整数倍；两个迁移：
+  `20261126043001_v1_11_task_estimates`（字段）与 `20261126050000_v1_11_task_estimate_check`（CHECK 约束）。
+- `ActivityType` 新增 `TASK_RESTORED`：迁移 `20261126130126_v1_14_task_restore`（要求 PostgreSQL 12+ 的枚举扩展语义）。
+- 删除任务保留 `task_dependencies` 行；列表/看板查询按 `deleted_at IS NULL` 过滤，恢复后依赖继续生效。
+- 删除看板列时，该列的已删除任务迁移到目标列（无可见任务时选择另一列），避免外键阻塞。
+- v1.8–v1.13 的日历、看板分组/批量/列表与 CSV 导出均为前端或只读计算，无其他表结构变更。

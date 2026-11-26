@@ -625,9 +625,7 @@ export class TasksService {
   async remove(userId: string, taskId: string): Promise<void> {
     const task = await this.taskInclude(taskId);
     await this.prisma.$transaction(async (tx) => {
-      await tx.taskDependency.deleteMany({
-        where: { OR: [{ taskId: task.id }, { blockedById: task.id }] },
-      });
+      // 保留依赖关系，恢复任务后可继续生效；未删除任务不会统计已删除任务。
       await tx.task.update({ where: { id: task.id }, data: { deletedAt: new Date() } });
       await this.activities.record(tx, {
         projectId: task.projectId,
@@ -638,6 +636,134 @@ export class TasksService {
       });
     });
     await this.events.publish(task.projectId, 'task.deleted', { taskId: task.id });
+  }
+
+  async trash(userId: string, projectId: string) {
+    const access = await this.access.getContext(userId, projectId);
+    if (!access.permissions.includes('task:delete')) {
+      throw new DomainError('FORBIDDEN', 403, 'Missing permission task:delete');
+    }
+    const tasks = await this.prisma.task.findMany({
+      where: { projectId, deletedAt: { not: null } },
+      orderBy: { deletedAt: 'desc' },
+      include: {
+        assignee: { select: { id: true, name: true, avatarUrl: true } },
+        column: { select: { id: true, name: true } },
+      },
+    });
+    return tasks.map((task) => ({
+      id: task.id,
+      projectId: task.projectId,
+      title: task.title,
+      columnId: task.columnId,
+      columnName: task.column.name,
+      priority: task.priority,
+      assignee: task.assignee
+        ? {
+            userId: task.assignee.id,
+            name: task.assignee.name,
+            avatarUrl: task.assignee.avatarUrl,
+          }
+        : null,
+      dueDate: task.dueDate,
+      estimateMinutes: task.estimateMinutes,
+      labels: task.labels,
+      deletedAt: task.deletedAt,
+    }));
+  }
+
+  private async assertRestoreAcyclic(taskId: string, projectId: string) {
+    const rows = await this.prisma.taskDependency.findMany({
+      where: { task: { projectId } },
+      select: {
+        taskId: true,
+        blockedById: true,
+        task: { select: { deletedAt: true } },
+        blockedBy: { select: { deletedAt: true } },
+      },
+    });
+    const graph = new Map<string, string[]>();
+    for (const row of rows) {
+      const taskActive = row.taskId === taskId || row.task.deletedAt === null;
+      const blockerActive = row.blockedById === taskId || row.blockedBy.deletedAt === null;
+      if (!taskActive || !blockerActive) continue;
+      const list = graph.get(row.taskId) ?? [];
+      list.push(row.blockedById);
+      graph.set(row.taskId, list);
+    }
+
+    const stack = [...(graph.get(taskId) ?? [])];
+    const visited = new Set<string>();
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      if (current === taskId) {
+        throw new DomainError(
+          'DEPENDENCY_CYCLE',
+          409,
+          '恢复任务会形成依赖循环，请先调整任务依赖',
+        );
+      }
+      if (visited.has(current)) continue;
+      visited.add(current);
+      for (const next of graph.get(current) ?? []) stack.push(next);
+    }
+  }
+
+  async restore(userId: string, taskId: string) {
+    const task = await this.prisma.task.findFirst({
+      where: { id: taskId, deletedAt: { not: null } },
+      include: { column: { select: { id: true, isDone: true, projectId: true } } },
+    });
+    if (!task) throw new DomainError('NOT_FOUND', 404, 'Task not found');
+    const access = await this.access.getContext(userId, task.projectId);
+    if (!access.permissions.includes('task:delete')) {
+      throw new DomainError('FORBIDDEN', 403, 'Missing permission task:delete');
+    }
+    if (access.archived) throw new DomainError('PROJECT_ARCHIVED', 409, 'Project is archived');
+
+    await this.assertRestoreAcyclic(task.id, task.projectId);
+    if (task.column.isDone && !task.completedAt) {
+      const blockers = await this.prisma.taskDependency.findMany({
+        where: {
+          taskId: task.id,
+          blockedBy: { deletedAt: null, completedAt: null },
+        },
+        select: { blockedBy: { select: { title: true } } },
+      });
+      if (blockers.length > 0) {
+        const names = blockers
+          .slice(0, 3)
+          .map((blocker) => `「${blocker.blockedBy.title}」`)
+          .join('、');
+        throw new DomainError(
+          'TASK_BLOCKED',
+          409,
+          `仍有 ${blockers.length} 个未完成依赖${names ? `（${names}）` : ''}，无法恢复到完成列`,
+        );
+      }
+    }
+
+    const position = await this.nextPosition(task.columnId);
+    const completedAt =
+      task.column.isDone && !task.completedAt ? new Date() : task.completedAt;
+    await this.prisma.$transaction(async (tx) => {
+      const restored = await tx.task.updateMany({
+        where: { id: task.id, deletedAt: { not: null } },
+        data: { deletedAt: null, position, completedAt },
+      });
+      if (restored.count === 0) {
+        throw new DomainError('NOT_FOUND', 404, 'Task is not in trash');
+      }
+      await this.activities.record(tx, {
+        projectId: task.projectId,
+        actorId: userId,
+        taskId: task.id,
+        type: 'TASK_RESTORED',
+        payload: { taskId: task.id, title: task.title, columnId: task.columnId },
+      });
+    });
+    await this.events.publish(task.projectId, 'task.updated', { taskId: task.id });
+    return this.detail(task.id, userId);
   }
 
   async createColumn(userId: string, projectId: string, input: CreateColumnInput) {
@@ -816,6 +942,14 @@ export class TasksService {
           });
           movedEvents.push({ taskId: task.id, position });
         }
+      }
+      // 已删除任务仍引用原列；迁移到目标列（没有可见任务时选另一列），避免外键阻塞删除。
+      const trashColumn = target ?? columns.find((item) => item.id !== columnId);
+      if (trashColumn) {
+        await tx.task.updateMany({
+          where: { columnId, deletedAt: { not: null } },
+          data: { columnId: trashColumn.id },
+        });
       }
       await tx.boardColumn.delete({ where: { id: columnId } });
       await this.activities.record(tx, {
