@@ -20,6 +20,7 @@ import {
 import type { CSSProperties, ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { UserAvatar } from '@/components/ui/avatar';
+import { Checkbox } from '@/components/ui/checkbox';
 import { TASK_PRIORITY_LABELS } from '@teamflow/shared/enums';
 import {
   DropdownMenu,
@@ -40,6 +41,10 @@ interface TaskCardViewProps {
   actions?: ReactNode;
   lockedByName?: string;
   overlay?: boolean;
+  selectable?: boolean;
+  selected?: boolean;
+  selectionDisabled?: boolean;
+  onToggleSelected?: (selected: boolean) => void;
 }
 
 export function TaskCardView({
@@ -49,6 +54,10 @@ export function TaskCardView({
   actions,
   lockedByName,
   overlay,
+  selectable,
+  selected,
+  selectionDisabled,
+  onToggleSelected,
 }: TaskCardViewProps) {
   const overdue = isOverdue(task.dueDate, task.completedAt);
   const staleDays = staleTaskDays(task.updatedAt, task.completedAt);
@@ -202,15 +211,34 @@ export function TaskCardView({
       className={cn(
         'rounded-lg border bg-card p-3 text-card-foreground shadow-sm transition-[box-shadow,border-color] duration-150 ease-out',
         overlay ? 'w-80 rotate-2 shadow-xl' : 'hover:border-primary/20 hover:shadow-md',
+        selected && 'border-primary/50 ring-1 ring-primary/20',
       )}
     >
       <div className="flex items-start gap-2">
+        {selectable ? (
+          <Checkbox
+            checked={Boolean(selected)}
+            onCheckedChange={(checked) => onToggleSelected?.(checked === true)}
+            disabled={selectionDisabled}
+            aria-label={`选择任务：${task.title}`}
+            className="mt-0.5 shrink-0"
+          />
+        ) : null}
         {onOpen ? (
           <button
             type="button"
-            onClick={() => onOpen(task.id)}
-            className="min-w-0 flex-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={`打开任务：${a11yParts.join('，')}`}
+            onClick={() => {
+              if (selectable) onToggleSelected?.(!selected);
+              else onOpen(task.id);
+            }}
+            disabled={selectable && selectionDisabled}
+            aria-pressed={selectable ? Boolean(selected) : undefined}
+            className="min-w-0 flex-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label={
+              selectable
+                ? `${selected ? '取消选择' : '选择'}任务：${task.title}`
+                : `打开任务：${a11yParts.join('，')}`
+            }
           >
             {body}
           </button>
@@ -235,6 +263,10 @@ interface SortableTaskCardProps {
   claimPending: boolean;
   movePending: boolean;
   duplicatePending: boolean;
+  selectable?: boolean;
+  selected?: boolean;
+  selectionDisabled?: boolean;
+  onToggleSelected?: (taskId: string, selected: boolean) => void;
   onOpen: (taskId: string) => void;
   onClaim: (task: TaskCard) => void;
   onMove: (task: TaskCard, target: { id: string; name: string }) => void;
@@ -252,6 +284,10 @@ export function SortableTaskCard({
   claimPending,
   movePending,
   duplicatePending,
+  selectable,
+  selected,
+  selectionDisabled,
+  onToggleSelected,
   onOpen,
   onClaim,
   onMove,
@@ -268,7 +304,7 @@ export function SortableTaskCard({
   } = useSortable({
     id: task.id,
     data: { type: 'task', taskId: task.id, columnId: task.columnId, title: task.title },
-    disabled: !canMove || Boolean(lockedByName),
+    disabled: !canMove || Boolean(lockedByName) || Boolean(selectable),
   });
 
   const style: CSSProperties = {
@@ -357,9 +393,17 @@ export function SortableTaskCard({
       <TaskCardView
         task={task}
         onOpen={onOpen}
-        dragHandle={dragHandle}
-        actions={actions}
+        dragHandle={selectable ? undefined : dragHandle}
+        actions={selectable ? undefined : actions}
         lockedByName={lockedByName}
+        selectable={selectable}
+        selected={selected}
+        selectionDisabled={selectionDisabled}
+        onToggleSelected={
+          selectable && onToggleSelected
+            ? (nextSelected) => onToggleSelected(task.id, nextSelected)
+            : undefined
+        }
       />
     </div>
   );

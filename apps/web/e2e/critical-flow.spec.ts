@@ -44,6 +44,13 @@ async function demoProjectId(token: string): Promise<string> {
   return project.id;
 }
 
+async function expectJson<T>(response: Response, label: string): Promise<T> {
+  if (!response.ok) {
+    throw new Error(`${label} failed: ${response.status} ${await response.text()}`);
+  }
+  return response.json() as Promise<T>;
+}
+
 test.describe('critical flows', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -106,6 +113,194 @@ test.describe('critical flows', () => {
     await page.getByRole('option', { name: '不分组' }).click();
     await expect(page.getByText('分组视图用于浏览；拖拽排序请切换「不分组」').first()).toBeHidden();
     await expect(page.getByLabel(/拖动任务：/).first()).toBeVisible();
+  });
+
+  test('board bulk actions update priority, assignee and completion', async ({ page }) => {
+    const token = await authenticate(page);
+    const projectId = await demoProjectId(token);
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const board = await fetch(`${API}/projects/${projectId}/board`, { headers }).then((response) =>
+      expectJson<{
+        columns: Array<{ id: string; name: string; isDone: boolean }>;
+        members: Array<{ userId: string; name: string }>;
+      }>(response, 'load board'),
+    );
+    const column = board.columns.find((item) => !item.isDone);
+    const doneColumn = board.columns.find((item) => item.isDone);
+    const target = board.members[0];
+    if (!column) throw new Error('Demo project has no non-done column');
+    if (!doneColumn) throw new Error('Demo project has no done column');
+    if (!target) throw new Error('Demo project has no members');
+
+    const suffix = Date.now();
+    const titles = [`E2E 批量 A ${suffix}`, `E2E 批量 B ${suffix}`];
+    const created: Array<{ id: string }> = [];
+    try {
+      for (const title of titles) {
+        const task = await fetch(`${API}/projects/${projectId}/tasks`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ title, columnId: column.id, priority: 'LOW' }),
+        }).then((response) => expectJson<{ id: string }>(response, `create task ${title}`));
+        created.push(task);
+      }
+
+      await page.goto('/');
+      await expect(page.getByRole('link', { name: /打开项目/ }).first()).toBeVisible();
+      await openDemoProject(page);
+      await page.getByRole('button', { name: '批量选择', exact: true }).click();
+
+      for (const title of titles) {
+        await page.getByRole('checkbox', { name: `选择任务：${title}` }).check();
+      }
+      const bulk = page.getByRole('region', { name: '批量操作' });
+      await expect(bulk).toBeVisible();
+      await expect(bulk.getByText('已选 2 个任务')).toBeVisible();
+
+      // 筛选变化后必须清空选择，避免批量操作误伤当前不可见的任务。
+      const search = page.getByRole('textbox', { name: '搜索任务标题' });
+      await search.fill(titles[0]!);
+      await expect(bulk).toBeHidden();
+      await expect(page.getByRole('button', { name: '退出批量' })).toBeVisible();
+      await search.fill('');
+      for (const title of titles) {
+        await page.getByRole('checkbox', { name: `选择任务：${title}` }).check();
+      }
+      await expect(bulk.getByText('已选 2 个任务')).toBeVisible();
+
+      await page.getByRole('combobox', { name: '批量设置优先级' }).click();
+      await page.getByRole('option', { name: '高' }).click();
+      await expect(page.getByText(/已更新 2 个任务/).first()).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(
+          async () => {
+            const latest = await fetch(`${API}/projects/${projectId}/board`, { headers }).then(
+              (response) =>
+                expectJson<{
+                  tasks: Array<{ title: string; priority: string }>;
+                }>(response, 'poll priority'),
+            );
+            return titles.every(
+              (title) => latest.tasks.find((task) => task.title === title)?.priority === 'HIGH',
+            );
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+
+      await page.getByRole('combobox', { name: '批量设置负责人' }).click();
+      await page.getByRole('option', { name: target.name }).click();
+      await expect
+        .poll(
+          async () => {
+            const latest = await fetch(`${API}/projects/${projectId}/board`, { headers }).then(
+              (response) =>
+                expectJson<{
+                  tasks: Array<{ title: string; assignee: { userId: string } | null }>;
+                }>(response, 'poll assignee'),
+            );
+            return titles.every(
+              (title) =>
+                latest.tasks.find((task) => task.title === title)?.assignee?.userId ===
+                target.userId,
+            );
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+
+      await page.getByRole('button', { name: '移入完成列' }).click();
+      await expect(page.getByText(/已移入完成列 2 个/).first()).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(
+          async () => {
+            const latest = await fetch(`${API}/projects/${projectId}/board`, { headers }).then(
+              (response) =>
+                expectJson<{
+                  tasks: Array<{ title: string; completedAt: string | null }>;
+                }>(response, 'poll completion'),
+            );
+            return titles.every(
+              (title) => latest.tasks.find((task) => task.title === title)?.completedAt !== null,
+            );
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      for (const title of titles) {
+        await expect(page.getByLabel(`列：${doneColumn.name}`).getByText(title)).toBeVisible({
+          timeout: 10_000,
+        });
+      }
+      await expect(page.getByRole('region', { name: '批量操作' })).toHaveCount(0);
+    } finally {
+      for (const task of created) {
+        await fetch(`${API}/tasks/${task.id}`, { method: 'DELETE', headers });
+      }
+    }
+  });
+
+  test('board bulk completion keeps blocked tasks selected on partial failure', async ({ page }) => {
+    const token = await authenticate(page);
+    const projectId = await demoProjectId(token);
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const board = await fetch(`${API}/projects/${projectId}/board`, { headers }).then((response) =>
+      expectJson<{
+        columns: Array<{ id: string; name: string; isDone: boolean }>;
+      }>(response, 'load board'),
+    );
+    const column = board.columns.find((item) => !item.isDone);
+    const doneColumn = board.columns.find((item) => item.isDone);
+    if (!column) throw new Error('Demo project has no non-done column');
+    if (!doneColumn) throw new Error('Demo project has no done column');
+
+    const suffix = Date.now();
+    const blockerTitle = `E2E 批量阻塞源 ${suffix}`;
+    const blockedTitle = `E2E 批量被阻塞 ${suffix}`;
+    const freeTitle = `E2E 批量可完成 ${suffix}`;
+    const created: Array<{ id: string }> = [];
+    try {
+      for (const title of [blockerTitle, blockedTitle, freeTitle]) {
+        const task = await fetch(`${API}/projects/${projectId}/tasks`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ title, columnId: column.id }),
+        }).then((response) => expectJson<{ id: string }>(response, `create task ${title}`));
+        created.push(task);
+      }
+      const [blocker, blocked, free] = created;
+      if (!blocker || !blocked || !free) throw new Error('Failed to create bulk fixtures');
+      await fetch(`${API}/tasks/${blocked.id}/dependencies`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ blockedByTaskId: blocker.id }),
+      }).then((response) => expectJson(response, 'create dependency'));
+
+      await page.goto('/');
+      await expect(page.getByRole('link', { name: /打开项目/ }).first()).toBeVisible();
+      await openDemoProject(page);
+      await page.getByRole('button', { name: '批量选择', exact: true }).click();
+      await page.getByRole('checkbox', { name: `选择任务：${blockedTitle}` }).check();
+      await page.getByRole('checkbox', { name: `选择任务：${freeTitle}` }).check();
+
+      const bulk = page.getByRole('region', { name: '批量操作' });
+      await expect(bulk.getByText('已选 2 个任务')).toBeVisible();
+      await page.getByRole('button', { name: '移入完成列' }).click();
+
+      await expect(page.getByText(/已移入完成列 1 个，1 个因依赖/).first()).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(bulk.getByText('已选 1 个任务')).toBeVisible();
+      await expect(page.getByRole('checkbox', { name: `选择任务：${blockedTitle}` })).toBeChecked();
+      await expect(
+        page.getByLabel(`列：${doneColumn.name}`).getByText(freeTitle),
+      ).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByLabel(`列：${column.name}`).getByText(blockedTitle)).toBeVisible();
+    } finally {
+      for (const task of created) {
+        await fetch(`${API}/tasks/${task.id}`, { method: 'DELETE', headers });
+      }
+    }
   });
 
   test('settings page lists members and permissions', async ({ page }) => {

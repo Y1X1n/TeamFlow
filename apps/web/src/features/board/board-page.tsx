@@ -37,9 +37,19 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { BoardColumnView } from './board-column';
 import { BoardHeader } from './board-header';
 import { BoardToolbar } from './board-toolbar';
+import { BoardBulkActions } from './board-bulk-actions';
 import { CreateTaskDialog } from './create-task-dialog';
 import { TaskCardOverlay } from './task-card';
 import { useBoardSync } from './hooks/use-board-sync';
+import {
+  pruneSelectedIds,
+  removeTaskIds,
+  runSequentialBulk,
+  setTaskSelected,
+  summarizeBulkComplete,
+  summarizeBulkUpdate,
+} from './board-bulk';
+import type { BulkMutationResult, BulkSummary } from './board-bulk';
 import type { BoardGroupBy } from './board-grouping';
 import {
   COLUMN_DROPPABLE_PREFIX,
@@ -55,6 +65,17 @@ import { getErrorMessage } from '@/features/tasks/task-utils';
 type CompletionIntent =
   | { kind: 'drag'; task: TaskCard; resolution: DropResolution; columnName: string }
   | { kind: 'next'; task: TaskCard; target: { id: string; name: string } };
+
+interface BulkUpdateVariables {
+  taskIds: string[];
+  patch: { assigneeId?: string | null; priority?: TaskPriority };
+}
+
+interface BulkCompleteVariables {
+  taskIds: string[];
+  columnId: string;
+  columnName: string;
+}
 
 const SCREEN_READER_INSTRUCTIONS: ScreenReaderInstructions = {
   draggable:
@@ -134,6 +155,8 @@ export function BoardPage({ projectId }: { projectId: string }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [quickAddColumnId, setQuickAddColumnId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set<string>());
   const [completionIntent, setCompletionIntent] = useState<CompletionIntent | null>(null);
   const completionTimerRef = useRef<number | null>(null);
 
@@ -185,6 +208,8 @@ export function BoardPage({ projectId }: { projectId: string }) {
   const canCreate = !archived && permissions.includes('task:create');
   const canAssign =
     !archived && permissions.includes('task:update') && permissions.includes('task:assign');
+  const canUpdate = !archived && permissions.includes('task:update');
+  const canSelect = canUpdate || canAssign || canMove;
   const currentUserId = user?.id ?? null;
 
   const columns = useMemo(
@@ -199,6 +224,20 @@ export function BoardPage({ projectId }: { projectId: string }) {
 
   const tasks = useMemo(() => board?.tasks ?? [], [board]);
   const members = useMemo(() => board?.members ?? [], [board]);
+
+  const doneColumn = useMemo(() => columns.find((column) => column.isDone) ?? null, [columns]);
+
+  // 筛选变化后清空选择，避免批量操作误伤当前不可见的任务。
+  useEffect(() => {
+    setSelectedIds(new Set<string>());
+  }, [search, assigneeFilter, priorityFilter, dueFilter]);
+
+  useEffect(() => {
+    if (!canSelect && selectionMode) {
+      setSelectionMode(false);
+      setSelectedIds(new Set<string>());
+    }
+  }, [canSelect, selectionMode]);
 
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
 
@@ -239,6 +278,10 @@ export function BoardPage({ projectId }: { projectId: string }) {
     });
   }, [tasks, search, assigneeFilter, priorityFilter, dueFilter]);
 
+  useEffect(() => {
+    setSelectedIds((previous) => pruneSelectedIds(previous, filteredTasks));
+  }, [filteredTasks]);
+
   const columnTaskIds = useMemo(
     () => buildColumnTaskIds(columns, filteredTasks, null),
     [columns, filteredTasks],
@@ -255,6 +298,11 @@ export function BoardPage({ projectId }: { projectId: string }) {
     }
     return result;
   }, [columns, columnTaskIds, taskById]);
+
+  const visibleSelectedIds = useMemo(
+    () => filteredTasks.filter((task) => selectedIds.has(task.id)).map((task) => task.id),
+    [filteredTasks, selectedIds],
+  );
 
   const lockedTaskNames = useMemo(() => {
     const result: Record<string, string> = {};
@@ -345,6 +393,60 @@ export function BoardPage({ projectId }: { projectId: string }) {
     onError: (error) => toast.error(getErrorMessage(error)),
   });
 
+  const notifyBulkSummary = (summary: BulkSummary) => {
+    if (summary.tone === 'success') toast.success(summary.message);
+    else if (summary.tone === 'warning') toast.warning(summary.message);
+    else toast.error(summary.message);
+  };
+
+  const bulkUpdateMutation = useMutation<BulkMutationResult, Error, BulkUpdateVariables>({
+    mutationFn: ({ taskIds, patch }) =>
+      runSequentialBulk(taskIds, (taskId) =>
+        api<TaskCard>(`/tasks/${taskId}`, { method: 'PATCH', body: patch }),
+      ),
+    onSuccess: (result, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      for (const taskId of variables.taskIds) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) });
+      }
+      if (result.failed > 0 && result.success > 0) {
+        const failedIds = new Set(result.failedTaskIds);
+        const succeededIds = variables.taskIds.filter((taskId) => !failedIds.has(taskId));
+        setSelectedIds((previous) => removeTaskIds(previous, succeededIds));
+      }
+      notifyBulkSummary(summarizeBulkUpdate(result));
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+
+  const bulkCompleteMutation = useMutation<BulkMutationResult, Error, BulkCompleteVariables>({
+    mutationFn: ({ taskIds, columnId }) =>
+      runSequentialBulk(taskIds, (taskId) =>
+        api<TaskCard>(`/tasks/${taskId}/move`, {
+          method: 'PATCH',
+          body: { columnId, beforeTaskId: null },
+        }),
+      ),
+    onSuccess: (result, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      for (const taskId of variables.taskIds) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) });
+      }
+      if (result.failed === 0) {
+        setSelectionMode(false);
+        setSelectedIds(new Set<string>());
+      } else if (result.success > 0) {
+        const failedIds = new Set(result.failedTaskIds);
+        const succeededIds = variables.taskIds.filter((taskId) => !failedIds.has(taskId));
+        setSelectedIds((previous) => removeTaskIds(previous, succeededIds));
+      }
+      notifyBulkSummary(summarizeBulkComplete(result, variables.columnName));
+    },
+    onError: (error) => toast.error(getErrorMessage(error)),
+  });
+
+  const bulkPending = bulkUpdateMutation.isPending || bulkCompleteMutation.isPending;
+
   const pendingClaimTaskId = claimTaskMutation.isPending
     ? claimTaskMutation.variables?.id
     : undefined;
@@ -371,6 +473,44 @@ export function BoardPage({ projectId }: { projectId: string }) {
 
   const handleDuplicateTask = (task: TaskCard) => {
     duplicateTaskMutation.mutate(task);
+  };
+
+  const handleToggleSelectionMode = () => {
+    if (selectionMode) {
+      setSelectionMode(false);
+      setSelectedIds(new Set<string>());
+      return;
+    }
+    setActiveId(null);
+    setSelectedIds(new Set<string>());
+    setSelectionMode(true);
+  };
+
+  const handleToggleTaskSelected = useCallback((taskId: string, selected: boolean) => {
+    setSelectedIds((previous) => setTaskSelected(previous, taskId, selected));
+  }, []);
+
+  const handleClearSelection = () => {
+    setSelectedIds(new Set<string>());
+  };
+
+  const handleBulkAssign = (assigneeId: string | null) => {
+    if (!canAssign || visibleSelectedIds.length === 0) return;
+    bulkUpdateMutation.mutate({ taskIds: visibleSelectedIds, patch: { assigneeId } });
+  };
+
+  const handleBulkPriority = (priority: TaskPriority) => {
+    if (!canUpdate || visibleSelectedIds.length === 0) return;
+    bulkUpdateMutation.mutate({ taskIds: visibleSelectedIds, patch: { priority } });
+  };
+
+  const handleBulkComplete = () => {
+    if (!canMove || !doneColumn || visibleSelectedIds.length === 0) return;
+    bulkCompleteMutation.mutate({
+      taskIds: visibleSelectedIds,
+      columnId: doneColumn.id,
+      columnName: doneColumn.name,
+    });
   };
 
   const toggleQuickAdd = (columnId: string) => {
@@ -430,7 +570,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
   const handleDragStart = (event: DragStartEvent) => {
     const id = String(event.active.id);
     const task = taskById.get(id);
-    if (!task || !canMove || groupBy !== 'none' || lockedTaskNames[id]) return;
+    if (!task || !canMove || groupBy !== 'none' || selectionMode || lockedTaskNames[id]) return;
     setActiveId(id);
   };
 
@@ -438,7 +578,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
     const id = String(event.active.id);
     const task = taskById.get(id);
     setActiveId(null);
-    if (!task || !event.over || !canMove || groupBy !== 'none') return;
+    if (!task || !event.over || !canMove || groupBy !== 'none' || selectionMode) return;
     const over = event.over;
     const overColumnId = columnIdFromOver(over, taskById);
     if (!overColumnId) return;
@@ -536,7 +676,26 @@ export function BoardPage({ projectId }: { projectId: string }) {
         canManageColumns={!archived && permissions.includes('board:manage')}
         projectId={projectId}
         connectionStatus={connectionStatus}
+        canSelect={canSelect}
+        selectionMode={selectionMode}
+        onToggleSelection={handleToggleSelectionMode}
       />
+
+      {selectionMode && visibleSelectedIds.length > 0 ? (
+        <BoardBulkActions
+          selectedCount={visibleSelectedIds.length}
+          members={members}
+          canAssign={canAssign}
+          canUpdate={canUpdate}
+          canMove={canMove}
+          doneColumnName={doneColumn?.name ?? null}
+          pending={bulkPending}
+          onAssign={handleBulkAssign}
+          onPriority={handleBulkPriority}
+          onComplete={handleBulkComplete}
+          onClearSelection={handleClearSelection}
+        />
+      ) : null}
 
       <DndContext
         sensors={sensors}
@@ -571,7 +730,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
                   tasks={tasksByColumn[column.id] ?? []}
                   groupBy={groupBy}
                   membersById={membersById}
-                  canMove={canMove && groupBy === 'none'}
+                  canMove={canMove && groupBy === 'none' && !selectionMode}
                   canAssign={canAssign}
                   canCreate={canCreate}
                   currentUserId={currentUserId}
@@ -582,9 +741,13 @@ export function BoardPage({ projectId }: { projectId: string }) {
                   pendingDuplicateTaskId={pendingDuplicateTaskId}
                   quickAddOpen={quickAddColumnId === column.id}
                   projectId={projectId}
+                  selectionMode={selectionMode}
+                  selectionDisabled={bulkPending}
+                  selectedIds={selectedIds}
                   onToggleQuickAdd={toggleQuickAdd}
                   onCloseQuickAdd={() => setQuickAddColumnId(null)}
                   onOpenTask={openTask}
+                  onToggleSelected={handleToggleTaskSelected}
                   onClaimTask={handleClaimTask}
                   onMoveTask={handleMoveTask}
                   onDuplicateTask={handleDuplicateTask}
