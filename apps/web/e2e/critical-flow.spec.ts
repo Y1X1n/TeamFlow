@@ -421,6 +421,77 @@ test.describe('critical flows', () => {
     }
   });
 
+  test('board list view renders, sorts and opens tasks', async ({ page }) => {
+    const token = await authenticate(page);
+    const projectId = await demoProjectId(token);
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const board = await fetch(`${API}/projects/${projectId}/board`, { headers }).then((response) =>
+      expectJson<{
+        columns: Array<{ id: string; name: string; isDone: boolean }>;
+      }>(response, 'load board'),
+    );
+    const column = board.columns.find((item) => !item.isDone);
+    if (!column) throw new Error('Demo project has no non-done column');
+
+    const suffix = Date.now();
+    const lateTitle = `E2E 列表晚 ${suffix}`;
+    const earlyTitle = `E2E 列表早 ${suffix}`;
+    const created: Array<{ id: string }> = [];
+    try {
+      for (const [title, dueDate, priority] of [
+        [lateTitle, '2026-12-20T00:00:00.000Z', 'URGENT'],
+        [earlyTitle, '2026-12-01T00:00:00.000Z', 'LOW'],
+      ] as const) {
+        const task = await fetch(`${API}/projects/${projectId}/tasks`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ title, columnId: column.id, dueDate, priority }),
+        }).then((response) => expectJson<{ id: string }>(response, `create task ${title}`));
+        created.push(task);
+      }
+
+      await page.goto(`/projects/${projectId}`);
+      await page.getByRole('combobox', { name: '视图切换' }).click();
+      await page.getByRole('option', { name: '列表' }).click();
+
+      await expect(page.getByRole('table')).toBeVisible();
+      await expect(page.getByRole('columnheader').filter({ hasText: '任务' })).toBeVisible();
+      await expect(page.getByLabel(/拖动任务：/)).toHaveCount(0);
+
+      const rows = page.getByRole('row').filter({ hasText: `E2E 列表` });
+      await expect(rows).toHaveCount(2);
+      await expect(rows.first()).toContainText(lateTitle);
+
+      await page.getByRole('button', { name: '按截止时间排序' }).click();
+      await expect(rows.first()).toContainText(earlyTitle);
+      await page.getByRole('button', { name: '按截止时间排序' }).click();
+      await expect(rows.first()).toContainText(lateTitle);
+
+      await page.getByRole('button', { name: '按优先级排序' }).click();
+      await expect(rows.first()).toContainText(lateTitle);
+      await page.getByRole('button', { name: '按优先级排序' }).click();
+      await expect(rows.first()).toContainText(earlyTitle);
+
+      await page.getByRole('button', { name: '按看板顺序排序' }).click();
+      await expect(rows.first()).toContainText(lateTitle);
+      await expect(rows.last()).toContainText(earlyTitle);
+
+      await page.getByRole('button', { name: `打开任务：${earlyTitle}` }).click();
+      await expect(page.getByRole('dialog')).toContainText(earlyTitle, { timeout: 15_000 });
+      await page.keyboard.press('Escape');
+
+      await page.getByRole('button', { name: '批量选择', exact: true }).click();
+      await page.getByRole('checkbox', { name: `选择任务：${earlyTitle}` }).check();
+      await expect(page.getByRole('region', { name: '批量操作' })).toBeVisible();
+      await page.getByRole('button', { name: '退出批量' }).click();
+      await expect(page.getByRole('region', { name: '批量操作' })).toHaveCount(0);
+    } finally {
+      for (const task of created) {
+        await fetch(`${API}/tasks/${task.id}`, { method: 'DELETE', headers });
+      }
+    }
+  });
+
   test('settings page lists members and permissions', async ({ page }) => {
     await authenticate(page);
     await page.goto('/');

@@ -52,6 +52,8 @@ import {
 } from './board-bulk';
 import type { BulkMutationResult, BulkSummary } from './board-bulk';
 import { buildBoardCsv, buildBoardCsvFilename } from './board-csv';
+import { BoardListView } from './board-list-view';
+import type { BoardViewMode } from './board-list-utils';
 import type { BoardGroupBy } from './board-grouping';
 import {
   COLUMN_DROPPABLE_PREFIX,
@@ -154,6 +156,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
   const [priorityFilter, setPriorityFilter] = useState<'all' | TaskPriority>('all');
   const [dueFilter, setDueFilter] = useState<DueFilter>('all');
   const [groupBy, setGroupBy] = useState<BoardGroupBy>('none');
+  const [viewMode, setViewMode] = useState<BoardViewMode>('board');
   const [createOpen, setCreateOpen] = useState(false);
   const [quickAddColumnId, setQuickAddColumnId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -529,6 +532,12 @@ export function BoardPage({ projectId }: { projectId: string }) {
     setActiveId(null);
   };
 
+  const handleViewModeChange = (value: BoardViewMode) => {
+    setViewMode(value);
+    setActiveId(null);
+    if (value === 'list') setQuickAddColumnId(null);
+  };
+
   const applyMove = async (task: TaskCard, resolution: DropResolution, force = false) => {
     const boardKey = queryKeys.board(projectId);
     await queryClient.cancelQueries({ queryKey: boardKey });
@@ -647,6 +656,18 @@ export function BoardPage({ projectId }: { projectId: string }) {
     );
   }
 
+  const emptyColumnsState = (
+    <div className="w-full rounded-xl border border-dashed p-10 text-center">
+      <p className="text-sm font-medium">该项目还没有看板列</p>
+      <p className="mt-1 text-xs text-muted-foreground">创建看板列后即可开始管理任务。</p>
+      {!archived && permissions.includes('board:manage') ? (
+        <Button asChild variant="outline" size="sm" className="mt-3">
+          <Link href={`/projects/${projectId}/settings`}>前往设置创建列</Link>
+        </Button>
+      ) : null}
+    </div>
+  );
+
   return (
     <div className="flex min-h-[calc(100vh_-_8rem)] flex-col">
       <BoardHeader
@@ -677,6 +698,8 @@ export function BoardPage({ projectId }: { projectId: string }) {
         onDueFilterChange={setDueFilter}
         groupBy={groupBy}
         onGroupByChange={handleGroupByChange}
+        viewMode={viewMode}
+        onViewModeChange={handleViewModeChange}
         members={members}
         totalCount={tasks.length}
         filteredCount={filteredTasks.length}
@@ -706,69 +729,78 @@ export function BoardPage({ projectId }: { projectId: string }) {
         />
       ) : null}
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={collisionDetection}
-        accessibility={{
-          announcements,
-          screenReaderInstructions: SCREEN_READER_INSTRUCTIONS,
-        }}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
-      >
-        <div className="mt-4 flex flex-1 items-start gap-4 overflow-x-auto pb-4 scrollbar-thin">
-          {columns.length === 0 ? (
-            <div className="w-full rounded-xl border border-dashed p-10 text-center">
-              <p className="text-sm font-medium">该项目还没有看板列</p>
-              <p className="mt-1 text-xs text-muted-foreground">创建看板列后即可开始管理任务。</p>
-              {!archived && permissions.includes('board:manage') ? (
-                <Button asChild variant="outline" size="sm" className="mt-3">
-                  <Link href={`/projects/${projectId}/settings`}>前往设置创建列</Link>
-                </Button>
-              ) : null}
-            </div>
-          ) : (
-            columns.map((column, index) => {
-              const next = columns[index + 1];
-              return (
-                <BoardColumnView
-                  key={column.id}
-                  column={column}
-                  colorIndex={index}
-                  tasks={tasksByColumn[column.id] ?? []}
-                  groupBy={groupBy}
-                  membersById={membersById}
-                  canMove={canMove && groupBy === 'none' && !selectionMode}
-                  canAssign={canAssign}
-                  canCreate={canCreate}
-                  currentUserId={currentUserId}
-                  nextColumn={next ? { id: next.id, name: next.name } : null}
-                  lockedTaskNames={lockedTaskNames}
-                  pendingClaimTaskId={pendingClaimTaskId}
-                  pendingMoveTaskId={pendingMoveTaskId}
-                  pendingDuplicateTaskId={pendingDuplicateTaskId}
-                  quickAddOpen={quickAddColumnId === column.id}
-                  projectId={projectId}
-                  selectionMode={selectionMode}
-                  selectionDisabled={bulkPending}
-                  selectedIds={selectedIds}
-                  onToggleQuickAdd={toggleQuickAdd}
-                  onCloseQuickAdd={() => setQuickAddColumnId(null)}
-                  onOpenTask={openTask}
-                  onToggleSelected={handleToggleTaskSelected}
-                  onClaimTask={handleClaimTask}
-                  onMoveTask={handleMoveTask}
-                  onDuplicateTask={handleDuplicateTask}
-                />
-              );
-            })
-          )}
-        </div>
-        <DragOverlay dropAnimation={null}>
-          {activeTask ? <TaskCardOverlay task={activeTask} /> : null}
-        </DragOverlay>
-      </DndContext>
+      {viewMode === 'list' ? (
+        columns.length === 0 ? (
+          emptyColumnsState
+        ) : (
+          <BoardListView
+            tasks={filteredTasks}
+            columns={columns}
+            membersById={membersById}
+            selectionMode={selectionMode}
+            selectionDisabled={bulkPending}
+            selectedIds={selectedIds}
+            onToggleSelected={handleToggleTaskSelected}
+            onOpenTask={openTask}
+          />
+        )
+      ) : (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={collisionDetection}
+          accessibility={{
+            announcements,
+            screenReaderInstructions: SCREEN_READER_INSTRUCTIONS,
+          }}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragCancel={handleDragCancel}
+        >
+          <div className="mt-4 flex flex-1 items-start gap-4 overflow-x-auto pb-4 scrollbar-thin">
+            {columns.length === 0 ? (
+              emptyColumnsState
+            ) : (
+              columns.map((column, index) => {
+                const next = columns[index + 1];
+                return (
+                  <BoardColumnView
+                    key={column.id}
+                    column={column}
+                    colorIndex={index}
+                    tasks={tasksByColumn[column.id] ?? []}
+                    groupBy={groupBy}
+                    membersById={membersById}
+                    canMove={canMove && groupBy === 'none' && !selectionMode}
+                    canAssign={canAssign}
+                    canCreate={canCreate}
+                    currentUserId={currentUserId}
+                    nextColumn={next ? { id: next.id, name: next.name } : null}
+                    lockedTaskNames={lockedTaskNames}
+                    pendingClaimTaskId={pendingClaimTaskId}
+                    pendingMoveTaskId={pendingMoveTaskId}
+                    pendingDuplicateTaskId={pendingDuplicateTaskId}
+                    quickAddOpen={quickAddColumnId === column.id}
+                    projectId={projectId}
+                    selectionMode={selectionMode}
+                    selectionDisabled={bulkPending}
+                    selectedIds={selectedIds}
+                    onToggleQuickAdd={toggleQuickAdd}
+                    onCloseQuickAdd={() => setQuickAddColumnId(null)}
+                    onOpenTask={openTask}
+                    onToggleSelected={handleToggleTaskSelected}
+                    onClaimTask={handleClaimTask}
+                    onMoveTask={handleMoveTask}
+                    onDuplicateTask={handleDuplicateTask}
+                  />
+                );
+              })
+            )}
+          </div>
+          <DragOverlay dropAnimation={null}>
+            {activeTask ? <TaskCardOverlay task={activeTask} /> : null}
+          </DragOverlay>
+        </DndContext>
+      )}
 
       <CreateTaskDialog
         open={createOpen}

@@ -21,6 +21,7 @@ import type { BoardConnectionStatus } from './hooks/use-board-sync';
 import type { DueFilter } from './board-utils';
 import { BOARD_GROUP_OPTIONS, isBoardGroupBy } from './board-grouping';
 import type { BoardGroupBy } from './board-grouping';
+import type { BoardViewMode } from './board-list-utils';
 
 const DUE_FILTER_LABELS: Record<DueFilter, string> = {
   all: '全部截止时间',
@@ -45,6 +46,8 @@ interface BoardToolbarProps {
   onDueFilterChange: (value: DueFilter) => void;
   groupBy: BoardGroupBy;
   onGroupByChange: (value: BoardGroupBy) => void;
+  viewMode: BoardViewMode;
+  onViewModeChange: (value: BoardViewMode) => void;
   members: MemberSummary[];
   totalCount: number;
   filteredCount: number;
@@ -94,6 +97,8 @@ export function BoardToolbar({
   onDueFilterChange,
   groupBy,
   onGroupByChange,
+  viewMode,
+  onViewModeChange,
   members,
   totalCount,
   filteredCount,
@@ -185,22 +190,39 @@ export function BoardToolbar({
       </Select>
 
       <Select
-        value={groupBy}
+        value={viewMode}
         onValueChange={(value) => {
-          if (isBoardGroupBy(value)) onGroupByChange(value);
+          if (value === 'board' || value === 'list') onViewModeChange(value);
         }}
       >
-        <SelectTrigger className="h-8 w-32" aria-label="任务分组">
-          <SelectValue placeholder="分组" />
+        <SelectTrigger className="h-8 w-28" aria-label="视图切换">
+          <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {BOARD_GROUP_OPTIONS.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
+          <SelectItem value="board">看板</SelectItem>
+          <SelectItem value="list">列表</SelectItem>
         </SelectContent>
       </Select>
+
+      {viewMode === 'board' ? (
+        <Select
+          value={groupBy}
+          onValueChange={(value) => {
+            if (isBoardGroupBy(value)) onGroupByChange(value);
+          }}
+        >
+          <SelectTrigger className="h-8 w-32" aria-label="任务分组">
+            <SelectValue placeholder="分组" />
+          </SelectTrigger>
+          <SelectContent>
+            {BOARD_GROUP_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : null}
 
       {hasFilters ? (
         <Button
@@ -247,7 +269,7 @@ export function BoardToolbar({
             {selectionMode ? '退出批量' : '批量选择'}
           </Button>
         ) : null}
-        {groupBy !== 'none' ? (
+        {viewMode === 'board' && groupBy !== 'none' ? (
           <span role="status" aria-live="polite">
             分组视图用于浏览；拖拽排序请切换「不分组」
           </span>
@@ -270,7 +292,9 @@ export function BoardToolbar({
 
       {selectionMode ? (
         <div role="status" className="w-full text-xs text-muted-foreground">
-          批量模式：勾选卡片后可批量改负责人/优先级/完成；拖拽已暂停
+          {viewMode === 'list'
+            ? '批量模式：勾选任务后可批量改负责人/优先级/完成'
+            : '批量模式：勾选任务后可批量改负责人/优先级/完成；拖拽已暂停'}
         </div>
       ) : null}
     </div>
