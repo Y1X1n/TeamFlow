@@ -29,6 +29,7 @@ import type { TaskPriority } from '@teamflow/shared/enums';
 import { comparePositions } from '@teamflow/shared/fractional';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { downloadTextFile } from '@/lib/download';
 import { queryKeys } from '@/lib/query-keys';
 import type { BoardData, MemberSummary, TaskCard, TaskDetail } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -50,6 +51,7 @@ import {
   summarizeBulkUpdate,
 } from './board-bulk';
 import type { BulkMutationResult, BulkSummary } from './board-bulk';
+import { buildBoardCsv, buildBoardCsvFilename } from './board-csv';
 import type { BoardGroupBy } from './board-grouping';
 import {
   COLUMN_DROPPABLE_PREFIX,
@@ -513,6 +515,11 @@ export function BoardPage({ projectId }: { projectId: string }) {
     });
   };
 
+  const handleExportCsv = () => {
+    const csv = buildBoardCsv(filteredTasks, columns, membersById);
+    downloadTextFile(buildBoardCsvFilename(), csv, 'text/csv;charset=utf-8');
+  };
+
   const toggleQuickAdd = (columnId: string) => {
     setQuickAddColumnId((previous) => (previous === columnId ? null : columnId));
   };
@@ -679,6 +686,8 @@ export function BoardPage({ projectId }: { projectId: string }) {
         canSelect={canSelect}
         selectionMode={selectionMode}
         onToggleSelection={handleToggleSelectionMode}
+        onExportCsv={handleExportCsv}
+        exportDisabled={filteredTasks.length === 0}
       />
 
       {selectionMode && visibleSelectedIds.length > 0 ? (
