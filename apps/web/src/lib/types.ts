@@ -70,6 +70,20 @@ export interface TaskCard {
   updatedAt: string;
 }
 
+export interface TrashTask {
+  id: string;
+  projectId: string;
+  title: string;
+  columnId: string;
+  columnName: string;
+  priority: TaskPriority;
+  assignee: { userId: string; name: string; avatarUrl: string | null } | null;
+  dueDate: string | null;
+  estimateMinutes: number | null;
+  labels: string[];
+  deletedAt: string;
+}
+
 export interface Subtask {
   id: string;
   taskId: string;

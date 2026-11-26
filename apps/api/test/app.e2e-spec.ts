@@ -105,6 +105,149 @@ describe('TeamFlow API (e2e)', () => {
     expect(moved.body.completedAt).toBeTruthy();
   });
 
+  it('lists deleted tasks in trash and restores them with dependencies', async () => {
+    const board = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/board`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const todo = board.body.columns.find((column: { name: string }) => column.name === '待办');
+
+    const blocker = await ownerAgent
+      .post(`/api/v1/projects/${projectId}/tasks`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ title: 'E2E 回收站前置', columnId: todo.id });
+    expect(blocker.status).toBe(201);
+
+    const dependent = await ownerAgent
+      .post(`/api/v1/projects/${projectId}/tasks`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ title: 'E2E 回收站任务', columnId: todo.id });
+    expect(dependent.status).toBe(201);
+
+    const dependency = await ownerAgent
+      .post(`/api/v1/tasks/${dependent.body.id}/dependencies`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ blockedByTaskId: blocker.body.id });
+    expect(dependency.status).toBe(201);
+
+    const removed = await ownerAgent
+      .delete(`/api/v1/tasks/${dependent.body.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(removed.status).toBe(204);
+
+    const trash = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/trash`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(trash.status).toBe(200);
+    expect(trash.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: dependent.body.id,
+          title: 'E2E 回收站任务',
+          columnName: '待办',
+        }),
+      ]),
+    );
+    expect(trash.body.some((task: { id: string }) => task.id === blocker.body.id)).toBe(false);
+
+    const restored = await ownerAgent
+      .post(`/api/v1/tasks/${dependent.body.id}/restore`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(restored.status).toBe(200);
+    expect(restored.body.id).toBe(dependent.body.id);
+    expect(restored.body.blockedBy).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ taskId: blocker.body.id, title: 'E2E 回收站前置' }),
+      ]),
+    );
+
+    const boardAfter = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/board`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(
+      boardAfter.body.tasks.some((task: { id: string }) => task.id === dependent.body.id),
+    ).toBe(true);
+  });
+
+  it('keeps trashed tasks when deleting their column', async () => {
+    const column = await ownerAgent
+      .post(`/api/v1/projects/${projectId}/columns`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'E2E 临时列' });
+    expect(column.status).toBe(201);
+
+    const task = await ownerAgent
+      .post(`/api/v1/projects/${projectId}/tasks`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ title: 'E2E 列内回收任务', columnId: column.body.id });
+    expect(task.status).toBe(201);
+
+    await ownerAgent
+      .delete(`/api/v1/tasks/${task.body.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(204);
+
+    const removedColumn = await ownerAgent
+      .delete(`/api/v1/columns/${column.body.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(removedColumn.status).toBe(204);
+
+    const trash = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/trash`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const trashed = trash.body.find((item: { id: string }) => item.id === task.body.id);
+    expect(trashed).toBeTruthy();
+    expect(trashed.columnName).not.toBe('E2E 临时列');
+
+    const restored = await ownerAgent
+      .post(`/api/v1/tasks/${task.body.id}/restore`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(restored.status).toBe(200);
+  });
+
+  it('rejects restoring a task that would create a dependency cycle', async () => {
+    const board = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/board`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const todo = board.body.columns.find((column: { name: string }) => column.name === '待办');
+
+    const [a, b, c] = await Promise.all(
+      ['E2E 环 A', 'E2E 环 B', 'E2E 环 C'].map((title) =>
+        ownerAgent
+          .post(`/api/v1/projects/${projectId}/tasks`)
+          .set('Authorization', `Bearer ${ownerToken}`)
+          .send({ title, columnId: todo.id }),
+      ),
+    );
+    if (!a || !b || !c) throw new Error('Failed to create cycle fixtures');
+    expect([a.status, b.status, c.status]).toEqual([201, 201, 201]);
+
+    await ownerAgent
+      .post(`/api/v1/tasks/${b.body.id}/dependencies`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ blockedByTaskId: a.body.id })
+      .expect(201);
+    await ownerAgent
+      .post(`/api/v1/tasks/${a.body.id}/dependencies`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ blockedByTaskId: c.body.id })
+      .expect(201);
+    await ownerAgent
+      .delete(`/api/v1/tasks/${a.body.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(204);
+    await ownerAgent
+      .post(`/api/v1/tasks/${c.body.id}/dependencies`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ blockedByTaskId: b.body.id })
+      .expect(201);
+
+    const restored = await ownerAgent
+      .post(`/api/v1/tasks/${a.body.id}/restore`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(restored.status).toBe(409);
+    expect(restored.body.code).toBe('DEPENDENCY_CYCLE');
+  });
+
   it('invites a viewer and enforces permissions', async () => {
     const viewerRegister = await viewerAgent.post('/api/v1/auth/register').send({
       email: viewerEmail,
@@ -138,6 +281,11 @@ describe('TeamFlow API (e2e)', () => {
       .send({ title: 'viewer forbidden' });
     expect(denied.status).toBe(403);
     expect(denied.headers['content-type']).toContain('problem+json');
+
+    const trashDenied = await viewerAgent
+      .get(`/api/v1/projects/${projectId}/trash`)
+      .set('Authorization', `Bearer ${viewerToken}`);
+    expect(trashDenied.status).toBe(403);
 
     const comments = await viewerAgent
       .get(`/api/v1/projects/${projectId}/activities`)

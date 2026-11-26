@@ -1,7 +1,17 @@
 'use client';
 
 import Link from 'next/link';
-import { CheckSquare, Download, Loader2, Search, Settings2, Wifi, WifiOff, X } from 'lucide-react';
+import {
+  CheckSquare,
+  Download,
+  Loader2,
+  Search,
+  Settings2,
+  Trash2,
+  Wifi,
+  WifiOff,
+  X,
+} from 'lucide-react';
 import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from '@teamflow/shared/enums';
 import type { TaskPriority } from '@teamflow/shared/enums';
 import { Button } from '@/components/ui/button';
@@ -59,6 +69,8 @@ interface BoardToolbarProps {
   onToggleSelection: () => void;
   onExportCsv: () => void;
   exportDisabled: boolean;
+  canOpenTrash: boolean;
+  onOpenTrash: () => void;
 }
 
 function ConnectionStatusPill({ status }: { status: BoardConnectionStatus }) {
@@ -110,6 +122,8 @@ export function BoardToolbar({
   onToggleSelection,
   onExportCsv,
   exportDisabled,
+  canOpenTrash,
+  onOpenTrash,
 }: BoardToolbarProps) {
   const hasFilters =
     search.trim().length > 0 ||
@@ -251,6 +265,13 @@ export function BoardToolbar({
         <Download className="h-3.5 w-3.5" aria-hidden="true" />
         导出 CSV
       </Button>
+
+      {canOpenTrash ? (
+        <Button type="button" variant="ghost" size="sm" className="h-8" onClick={onOpenTrash}>
+          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+          回收站
+        </Button>
+      ) : null}
 
       <div className="ml-auto flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
         {canSelect ? (

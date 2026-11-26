@@ -7,6 +7,7 @@ export const queryKeys = {
   invites: (projectId: string) => ['invites', projectId] as const,
   myPermissions: (projectId: string) => ['my-permissions', projectId] as const,
   task: (id: string) => ['task', id] as const,
+  trash: (projectId: string) => ['trash', projectId] as const,
   subtasks: (taskId: string) => ['subtasks', taskId] as const,
   taskActivities: (taskId: string) => ['task-activities', taskId] as const,
   comments: (taskId: string) => ['comments', taskId] as const,

@@ -96,6 +96,16 @@
 | PATCH  | `/tasks/{taskId}`             | `task:update`；改负责人另需 `task:assign` | 更新字段                    |
 | PATCH  | `/tasks/{taskId}/move`        | `task:move`                               | 移动列/排序                 |
 | DELETE | `/tasks/{taskId}`             | `task:delete`                             | 软删除                      |
+| GET    | `/projects/{projectId}/trash` | `task:delete`                             | 回收站，全部已删除任务       |
+| POST   | `/tasks/{taskId}/restore`     | `task:delete`                             | 恢复任务到原列末尾，依赖保留 |
+
+**回收站语义**
+
+- 删除任务保留依赖行；看板/列表按 `deletedAt=null` 过滤，恢复后依赖继续生效。
+- 恢复任务重新计算列尾 position；原列已删除时恢复到迁移后的剩余列；归档项目返回 `409 PROJECT_ARCHIVED`。
+- 恢复前校验依赖环与完成列阻塞，冲突分别返回 `409 DEPENDENCY_CYCLE` / `409 TASK_BLOCKED`。
+- 非删除任务恢复返回 404；无 `task:delete` 返回 403。
+- 删除看板列时，该列已删除任务迁移到目标列，避免外键阻塞。
 
 **移动语义**
 

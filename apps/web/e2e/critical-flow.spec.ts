@@ -492,6 +492,46 @@ test.describe('critical flows', () => {
     }
   });
 
+  test('board trash lists a deleted task and restores it', async ({ page }) => {
+    const token = await authenticate(page);
+    const projectId = await demoProjectId(token);
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const board = await fetch(`${API}/projects/${projectId}/board`, { headers }).then((response) =>
+      expectJson<{
+        columns: Array<{ id: string; name: string; isDone: boolean }>;
+      }>(response, 'load board'),
+    );
+    const column = board.columns.find((item) => !item.isDone);
+    if (!column) throw new Error('Demo project has no non-done column');
+
+    const title = `E2E 回收站 UI ${Date.now()}`;
+    const created = await fetch(`${API}/projects/${projectId}/tasks`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ title, columnId: column.id }),
+    }).then((response) => expectJson<{ id: string }>(response, 'create trash task'));
+    await fetch(`${API}/tasks/${created.id}`, { method: 'DELETE', headers });
+
+    try {
+      await page.goto(`/projects/${projectId}`);
+      await page.getByRole('button', { name: '回收站' }).click();
+      const dialog = page.getByRole('dialog', { name: '回收站' });
+      await expect(dialog).toBeVisible();
+      const row = dialog.getByRole('listitem').filter({ hasText: title });
+      await expect(row).toBeVisible({ timeout: 15_000 });
+
+      await row.getByRole('button', { name: '恢复' }).click();
+      await expect(page.getByText(`已恢复任务「${title}」`).first()).toBeVisible({
+        timeout: 15_000,
+      });
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog', { name: '回收站' })).toBeHidden();
+      await expect(page.getByText(title).first()).toBeVisible({ timeout: 10_000 });
+    } finally {
+      await fetch(`${API}/tasks/${created.id}`, { method: 'DELETE', headers });
+    }
+  });
+
   test('settings page lists members and permissions', async ({ page }) => {
     await authenticate(page);
     await page.goto('/');

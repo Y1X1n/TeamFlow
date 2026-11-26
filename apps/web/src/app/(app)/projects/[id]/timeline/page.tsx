@@ -41,6 +41,7 @@ const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   TASK_REOPENED: '重新打开任务',
   TASK_ASSIGNED: '指派任务',
   TASK_DELETED: '删除任务',
+  TASK_RESTORED: '恢复任务',
   COMMENT_CREATED: '发表评论',
   COMMENT_UPDATED: '更新评论',
   COMMENT_DELETED: '删除评论',

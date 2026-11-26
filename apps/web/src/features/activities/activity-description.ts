@@ -109,6 +109,8 @@ export function describeActivity(
       return { text: `指派了任务${quote(taskTitle(payload))}` };
     case 'TASK_DELETED':
       return { text: `删除了任务${quote(taskTitle(payload))}` };
+    case 'TASK_RESTORED':
+      return { text: `从回收站恢复了任务${quote(taskTitle(payload))}` };
     case 'TASK_DEPENDENCY_ADDED': {
       const blocker = readString(payload, 'blockedByTitle') ?? '其他任务';
       return {

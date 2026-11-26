@@ -88,6 +88,19 @@ export class TasksController {
   async remove(@CurrentUser() user: { id: string }, @Param('taskId') taskId: string) {
     await this.tasks.remove(user.id, taskId);
   }
+
+  @Get('projects/:projectId/trash')
+  @RequirePermission('task:delete')
+  trash(@CurrentUser() user: { id: string }, @Param('projectId') projectId: string) {
+    return this.tasks.trash(user.id, projectId);
+  }
+
+  @Post('tasks/:taskId/restore')
+  @HttpCode(200)
+  @RequirePermission('task:delete')
+  restore(@CurrentUser() user: { id: string }, @Param('taskId') taskId: string) {
+    return this.tasks.restore(user.id, taskId);
+  }
 }
 
 @Controller()
