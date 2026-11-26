@@ -49,7 +49,7 @@ function readPair(value: unknown): [string | null, string | null] | null {
   return [normalize(from), normalize(to)];
 }
 
-function readEstimatePair(value: unknown): [number | null, number | null] | null {
+function readMinutePair(value: unknown): [number | null, number | null] | null {
   if (!Array.isArray(value) || value.length < 2) return null;
   const normalize = (item: unknown): number | null =>
     typeof item === 'number' && Number.isFinite(item) ? item : null;
@@ -102,10 +102,16 @@ function describeChanges(changes: unknown): string | null {
   if (dueChange) {
     parts.push(`截止时间：${formatDate(dueChange[0])} → ${formatDate(dueChange[1])}`);
   }
-  const estimateChange = readEstimatePair(record.estimateMinutes);
+  const estimateChange = readMinutePair(record.estimateMinutes);
   if (estimateChange) {
     parts.push(
-      `工时估算：${formatEstimateMinutes(estimateChange[0]) ?? '未估算'} → ${formatEstimateMinutes(estimateChange[1]) ?? '未估算'}`,
+      `预计工时：${formatEstimateMinutes(estimateChange[0]) ?? '未估算'} → ${formatEstimateMinutes(estimateChange[1]) ?? '未估算'}`,
+    );
+  }
+  const actualChange = readMinutePair(record.actualMinutes);
+  if (actualChange) {
+    parts.push(
+      `实际工时：${formatEstimateMinutes(actualChange[0]) ?? '未记录'} → ${formatEstimateMinutes(actualChange[1]) ?? '未记录'}`,
     );
   }
   if (Array.isArray(record.assigneeId)) {

@@ -79,7 +79,7 @@ export function BoardListView({
 
   return (
     <div className="mt-4 overflow-x-auto rounded-xl border bg-card">
-      <table className="w-full min-w-[920px] border-collapse text-sm">
+      <table className="w-full min-w-[1020px] border-collapse text-sm">
         <caption className="sr-only">任务列表视图，按当前搜索和筛选结果展示</caption>
         <thead className="bg-muted/40 text-xs text-muted-foreground">
           <tr className="border-b">
@@ -140,7 +140,10 @@ export function BoardListView({
               </th>
             ))}
             <th scope="col" className="w-24 px-3 py-2 text-left font-medium">
-              工时
+              预计工时
+            </th>
+            <th scope="col" className="w-24 px-3 py-2 text-left font-medium">
+              实际工时
             </th>
             <th scope="col" className="px-3 py-2 text-left font-medium">
               标签
@@ -172,7 +175,7 @@ export function BoardListView({
           {sortedTasks.length === 0 ? (
             <tr>
               <td
-                colSpan={selectionMode ? 9 : 8}
+                colSpan={selectionMode ? 10 : 9}
                 className="px-4 py-12 text-center text-sm text-muted-foreground"
               >
                 当前筛选下没有任务
@@ -181,6 +184,7 @@ export function BoardListView({
           ) : (
             sortedTasks.map((task) => {
               const estimate = formatEstimateMinutes(task.estimateMinutes);
+              const actual = formatEstimateMinutes(task.actualMinutes);
               const overdue = isOverdue(task.dueDate, task.completedAt);
               const assignee = task.assignee
                 ? (membersById.get(task.assignee.userId) ?? task.assignee)
@@ -251,6 +255,9 @@ export function BoardListView({
                   </td>
                   <td className="px-3 py-2 align-top whitespace-nowrap">
                     {estimate ?? <span className="text-muted-foreground">—</span>}
+                  </td>
+                  <td className="px-3 py-2 align-top whitespace-nowrap">
+                    {actual ?? <span className="text-muted-foreground">—</span>}
                   </td>
                   <td className="px-3 py-2 align-top">
                     {labels.length > 0 ? (
