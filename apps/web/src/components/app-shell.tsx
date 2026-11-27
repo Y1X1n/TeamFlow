@@ -46,7 +46,11 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
   const pathname = usePathname();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const fluidLayout = fluid ?? /^\/projects\/[^/]+$/.test(pathname);
-  const activeNavHref = APP_NAV.find((item) => item.href === pathname)?.href;
+  const activeNavHref = APP_NAV.find((item) =>
+    item.href === '/'
+      ? pathname === '/'
+      : pathname === item.href || pathname.startsWith(`${item.href}/`),
+  )?.href;
   const {
     containerRef: navRef,
     registerItem: registerNavItem,
@@ -92,16 +96,16 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
             fluidLayout ? 'max-w-none' : 'max-w-6xl',
           )}
         >
-          <Link href="/" className="flex items-center gap-2 font-semibold">
+          <Link href="/" className="flex items-center gap-2 text-sm font-semibold sm:text-base">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-sm text-primary-foreground">
               T
             </span>
-            TeamFlow
+            <span>TeamFlow</span>
           </Link>
           <nav
             ref={navRef}
             aria-label="主导航"
-            className="relative ml-4 flex shrink-0 items-center gap-1"
+            className="relative ml-4 hidden shrink-0 items-center gap-1 md:flex"
           >
             <span
               aria-hidden="true"
@@ -160,7 +164,7 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
                 Ctrl K
               </kbd>
             </Button>
-            <Button variant="ghost" size="icon" asChild>
+            <Button variant="ghost" size="icon" asChild className="hidden md:inline-flex">
               <Link href="/inbox" aria-label="通知">
                 <Bell className="h-4 w-4" />
               </Link>
@@ -245,12 +249,52 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
           </div>
         </div>
       </header>
-      <main className={cn('mx-auto px-4 py-6', fluidLayout ? 'max-w-none' : 'max-w-6xl')}>
+      <main
+        className={cn(
+          'mx-auto px-4 py-6 pb-safe-nav md:pb-6',
+          fluidLayout ? 'max-w-none' : 'max-w-6xl',
+        )}
+      >
         {children}
       </main>
-      <footer className="mx-auto max-w-6xl px-4 pb-6 text-xs text-muted-foreground">
+      <footer className="mx-auto hidden max-w-6xl px-4 pb-6 text-xs text-muted-foreground md:block">
         TeamFlow MVP · 实时看板 · 细粒度权限 · 自动化周报
       </footer>
+
+      {/* 移动端底部 Tab；桌面端由顶部导航承载。 */}
+      <nav
+        aria-label="移动端主导航"
+        className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 pb-safe backdrop-blur md:hidden"
+      >
+        <div className="flex items-stretch justify-around px-1">
+          {APP_NAV.map((item) => {
+            const active = item.href === activeNavHref;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-label={item.label}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'flex min-h-[3.25rem] flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 text-[11px] transition-colors',
+                  active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <span className="relative">
+                  <item.icon className="h-5 w-5" aria-hidden="true" />
+                  {item.href === '/inbox' && (unread?.count ?? 0) > 0 ? (
+                    <span className="absolute -right-1.5 -top-1 min-w-[14px] rounded-full bg-primary px-1 text-[9px] leading-3.5 text-primary-foreground">
+                      {(unread?.count ?? 0) > 9 ? '9+' : unread?.count}
+                    </span>
+                  ) : null}
+                </span>
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
   );

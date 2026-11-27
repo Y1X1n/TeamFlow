@@ -33,12 +33,24 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    /* 移动端禁止页面级横向滚动；看板/表格内部仍有自己的横向滚动容器。 */
+    overflow-x: hidden;
   }
 }
 
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
+  }
+
+  /* 移动端底部安全区（刘海屏 / 手势条）。 */
+  .pb-safe {
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+  }
+
+  .pb-safe-nav {
+    padding-bottom: calc(4.25rem + env(safe-area-inset-bottom));
   }
 }
 
@@ -148,6 +160,8 @@
 .page-enter {
   animation: page-enter 220ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
   will-change: opacity, transform;
+  /* transform 会创建包含块，内部横向滚动容器需要显式裁剪，避免撑宽页面。 */
+  overflow-x: clip;
 }
 
 @media (prefers-reduced-motion: reduce) {

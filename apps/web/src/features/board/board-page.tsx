@@ -781,7 +781,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
   );
 
   return (
-    <div className="flex min-h-[calc(100vh_-_8rem)] flex-col">
+    <div className="flex min-h-[calc(100dvh_-_8rem)] flex-col">
       <BoardHeader
         project={board.project}
         members={members}
@@ -875,7 +875,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
           onDragEnd={handleDragEnd}
           onDragCancel={handleDragCancel}
         >
-          <div className="mt-4 flex flex-1 items-start gap-4 overflow-x-auto pb-4 scrollbar-thin">
+          <div className="mt-4 flex flex-1 snap-x items-start gap-4 overflow-x-auto scroll-px-4 pb-4 scrollbar-thin [@media(pointer:coarse)]:snap-mandatory">
             {columns.length === 0 ? (
               emptyColumnsState
             ) : (

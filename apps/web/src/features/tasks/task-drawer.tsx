@@ -339,7 +339,7 @@ export function TaskDrawer({
         if (!nextOpen) onClose();
       }}
     >
-      <SheetContent className="flex w-full max-w-[640px] flex-col gap-0 p-0 sm:max-w-[640px]">
+      <SheetContent className="flex h-[100dvh] max-h-[100dvh] w-full max-w-[640px] flex-col gap-0 p-0 pb-safe sm:max-w-[640px]">
         <SheetTitle className="sr-only">任务详情</SheetTitle>
         <SheetDescription className="sr-only">
           查看与编辑任务详情、子任务、评论、活动与附件

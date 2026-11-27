@@ -639,6 +639,61 @@ test.describe('critical flows', () => {
     }
   });
 
+  test('mobile layout: bottom nav, board column width, drawer and list cards', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const token = await authenticate(page);
+    const projectId = await demoProjectId(token);
+
+    await page.goto('/');
+    await expect(page.getByRole('navigation', { name: '移动端主导航' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: '主导航', exact: true })).toBeHidden();
+
+    const dashboardOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(dashboardOverflow).toBeLessThanOrEqual(1);
+
+    await openDemoProject(page);
+    await expect(page.getByRole('heading', { name: /毕业设计协作/ })).toBeVisible();
+
+    const boardOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(boardOverflow).toBeLessThanOrEqual(1);
+
+    const firstColumn = page.getByRole('region', { name: /^列：/ }).first();
+    const box = await firstColumn.boundingBox();
+    expect(box).toBeTruthy();
+    // 390 视口下 85vw ≈ 331px，且被 max-w-80（320px）封顶。
+    expect(box!.width).toBeLessThan(390 * 0.9);
+    expect(box!.width).toBeGreaterThanOrEqual(300);
+
+    // 任务抽屉在手机端全宽、全高。
+    const openTask = page.getByRole('button', { name: /打开任务：/ }).first();
+    await expect(openTask).toBeVisible();
+    await openTask.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    const dialogBox = await dialog.boundingBox();
+    expect(dialogBox?.width).toBeGreaterThanOrEqual(380);
+    expect(dialogBox?.height).toBeGreaterThanOrEqual(820);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+
+    // 列表视图在手机端显示卡片列表与排序入口，而不是横向表格。
+    await page.getByRole('combobox', { name: '视图切换' }).click();
+    await page.getByRole('option', { name: '列表' }).click();
+    await expect(page.getByRole('table')).toBeHidden();
+    await expect(page.getByRole('combobox', { name: '列表排序' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /打开任务：/ }).first()).toBeVisible();
+
+    // 全局不应出现横向滚动条。
+    const listOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(listOverflow).toBeLessThanOrEqual(1);
+  });
+
   test('board list view renders, sorts and opens tasks', async ({ page }) => {
     const token = await authenticate(page);
     const projectId = await demoProjectId(token);
@@ -1012,6 +1067,7 @@ test.describe('critical flows', () => {
   });
 
   test('v1.1 quick add, subtasks, AI breakdown, replies, reactions and watch', async ({ page }) => {
+    test.setTimeout(120_000);
     const token = await authenticate(page);
     const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
     const projectId = await demoProjectId(token);
@@ -1056,7 +1112,8 @@ test.describe('critical flows', () => {
       await expect(aiDialog).toBeVisible();
       await aiDialog.getByRole('button', { name: '生成预览' }).click();
       const firstSuggestion = aiDialog.getByRole('textbox').first();
-      await expect(firstSuggestion).toBeVisible({ timeout: 15_000 });
+      // AI 代理可能较慢；给足时间，失败时仍由后续断言暴露。
+      await expect(firstSuggestion).toBeVisible({ timeout: 45_000 });
       const suggestionTitle = await firstSuggestion.inputValue();
       expect(suggestionTitle.trim().length).toBeGreaterThan(0);
       await aiDialog.getByRole('button', { name: /创建 \d+ 个子任务/ }).click();
@@ -1209,6 +1266,7 @@ test.describe('critical flows', () => {
   });
 
   test('v1.3 live weekly summary and safe email preview', async ({ page }) => {
+    test.setTimeout(120_000);
     const token = await authenticate(page);
     const projectId = await demoProjectId(token);
     await page.goto(`/projects/${projectId}/reports`);
@@ -1226,8 +1284,9 @@ test.describe('critical flows', () => {
     });
 
     await dialog.getByRole('button', { name: '生成邮件预览' }).click();
+    // 邮件正文可能调用 AI 生成；AI 超时后会回退本地模板。
     await expect(dialog.getByRole('heading', { name: '邮件预览' })).toBeVisible({
-      timeout: 15_000,
+      timeout: 45_000,
     });
     await expect(dialog.getByLabel('主题')).toHaveValue(/周报/);
     await expect(dialog.getByLabel('正文')).toHaveValue(/本周概览/);
