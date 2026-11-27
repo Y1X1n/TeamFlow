@@ -80,6 +80,16 @@ export const TASK_LABELS_MAX = 5;
 export const TASK_LABEL_MAX_LENGTH = 20;
 export const TASK_ESTIMATE_MIN_MINUTES = 15;
 export const TASK_ESTIMATE_MAX_MINUTES = 7 * 24 * 60;
+
+export const TASK_RECURRENCES = ['NONE', 'DAILY', 'WEEKLY', 'MONTHLY'] as const;
+export type TaskRecurrence = (typeof TASK_RECURRENCES)[number];
+
+export const TASK_RECURRENCE_LABELS: Record<TaskRecurrence, string> = {
+  NONE: '不重复',
+  DAILY: '每天',
+  WEEKLY: '每周',
+  MONTHLY: '每月',
+};
 export const MEMBER_SKILLS_MAX = 6;
 export const MEMBER_SKILL_MAX_LENGTH = 20;
 export const MEMBER_SKILL_PRESETS = [

@@ -797,6 +797,7 @@ paths:
       description: |
         服务端根据 `beforeTaskId` 计算新分数索引：放到该任务之前；`null` 表示放到列尾。
         `beforeTaskId` 必须属于目标列。服务端提交后经 WebSocket 广播给所有在线成员。
+        若任务设置了 `recurrence` 且本次移入完成列，会同步在第一个未完成列末尾生成下一次任务。
       requestBody:
         required: true
         content:
@@ -2097,12 +2098,15 @@ components:
     TaskPriority:
       type: string
       enum: [LOW, MEDIUM, HIGH, URGENT]
+    TaskRecurrence:
+      type: string
+      enum: [NONE, DAILY, WEEKLY, MONTHLY]
     TaskCard:
       type: object
       required:
         [id, projectId, columnId, title, priority, labels, position, commentCount,
          attachmentCount, subtaskTotal, subtaskDone, blockedByCount, blockingCount,
-         estimateMinutes, actualMinutes, createdAt, updatedAt]
+         estimateMinutes, actualMinutes, recurrence, createdAt, updatedAt]
       properties:
         id: { type: string }
         projectId: { type: string }
@@ -2126,6 +2130,8 @@ components:
           maximum: 10080
           multipleOf: 15
           description: 实际工时（分钟，15 分钟粒度）
+        recurrence:
+          $ref: '#/components/schemas/TaskRecurrence'
         labels:
           type: array
           maxItems: 5
@@ -2148,7 +2154,7 @@ components:
       type: object
       required:
         [id, projectId, title, columnId, columnName, priority, assignee, dueDate,
-         estimateMinutes, actualMinutes, labels, deletedAt]
+         estimateMinutes, actualMinutes, recurrence, labels, deletedAt]
       properties:
         id: { type: string }
         projectId: { type: string }
@@ -2168,6 +2174,7 @@ components:
         dueDate: { type: [string, 'null'], format: date-time }
         estimateMinutes: { type: [integer, 'null'], minimum: 15, maximum: 10080, multipleOf: 15 }
         actualMinutes: { type: [integer, 'null'], minimum: 15, maximum: 10080, multipleOf: 15 }
+        recurrence: { $ref: '#/components/schemas/TaskRecurrence' }
         labels:
           type: array
           maxItems: 5
@@ -2255,6 +2262,8 @@ components:
           minimum: 15
           maximum: 10080
           multipleOf: 15
+        recurrence:
+          $ref: '#/components/schemas/TaskRecurrence'
         labels:
           type: array
           maxItems: 5
@@ -2281,6 +2290,8 @@ components:
           minimum: 15
           maximum: 10080
           multipleOf: 15
+        recurrence:
+          $ref: '#/components/schemas/TaskRecurrence'
         labels:
           type: array
           maxItems: 5

@@ -382,6 +382,116 @@ test.describe('critical flows', () => {
     }
   });
 
+  test('recurring task spawns the next occurrence on completion', async ({ page }) => {
+    const token = await authenticate(page);
+    const projectId = await demoProjectId(token);
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const board = await fetch(`${API}/projects/${projectId}/board`, { headers }).then((response) =>
+      expectJson<{
+        columns: Array<{ id: string; name: string; isDone: boolean }>;
+      }>(response, 'load board'),
+    );
+    const todo = board.columns.find((column) => !column.isDone);
+    const done = board.columns.find((column) => column.isDone);
+    if (!todo || !done) throw new Error('Demo project needs a done column');
+
+    const title = `E2E 重复任务 ${Date.now()}`;
+    const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const created = await fetch(`${API}/projects/${projectId}/tasks`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ title, columnId: todo.id, dueDate, recurrence: 'WEEKLY' }),
+    }).then((response) => expectJson<{ id: string }>(response, 'create recurring task'));
+
+    try {
+      await page.goto(`/projects/${projectId}?task=${created.id}`);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog.getByText(title).first()).toBeVisible({ timeout: 15_000 });
+      await expect(dialog.getByText(/每周/).first()).toBeVisible();
+
+      await dialog.getByLabel('重复').click();
+      await page.getByRole('option', { name: '每天' }).click();
+      await expect(dialog.getByText(/每天/).first()).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(
+          async () => {
+            const detail = await fetch(`${API}/tasks/${created.id}`, { headers }).then(
+              (response) => expectJson<{ recurrence: string }>(response, 'poll recurrence'),
+            );
+            return detail.recurrence;
+          },
+          { timeout: 15_000 },
+        )
+        .toBe('DAILY');
+
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await expect(page.getByText('每天').first()).toBeVisible({ timeout: 10_000 });
+
+      const moved = await fetch(`${API}/tasks/${created.id}/move`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ columnId: done.id, beforeTaskId: null }),
+      }).then((response) => expectJson(response, 'complete recurring task'));
+      expect(moved).toBeTruthy();
+
+      await expect
+        .poll(
+          async () => {
+            const latest = await fetch(`${API}/projects/${projectId}/board`, { headers }).then(
+              (response) =>
+                expectJson<{
+                  tasks: Array<{ id: string; title: string; columnId: string; completedAt: string | null }>;
+                }>(response, 'poll occurrences'),
+            );
+            return latest.tasks.filter((task) => task.title === title).length;
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(2);
+
+      const occurrences = await fetch(`${API}/projects/${projectId}/board`, { headers }).then(
+        (response) =>
+          expectJson<{
+            tasks: Array<{
+              id: string;
+              title: string;
+              columnId: string;
+              completedAt: string | null;
+              recurrence: string;
+            }>;
+          }>(response, 'read occurrences'),
+      );
+      const next = occurrences.tasks.find(
+        (task) => task.title === title && task.id !== created.id,
+      );
+      expect(next).toBeTruthy();
+      expect(next?.columnId).toBe(todo.id);
+      expect(next?.completedAt).toBeNull();
+      expect(next?.recurrence).toBe('DAILY');
+
+      // 再次移入同一完成列不应生成第三个实例。
+      await fetch(`${API}/tasks/${created.id}/move`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ columnId: done.id, beforeTaskId: null }),
+      }).then((response) => expectJson(response, 're-complete recurring task'));
+      const afterSecondMove = await fetch(`${API}/projects/${projectId}/board`, { headers }).then(
+        (response) =>
+          expectJson<{ tasks: Array<{ title: string }> }>(response, 'verify no duplicate'),
+      );
+      expect(afterSecondMove.tasks.filter((task) => task.title === title)).toHaveLength(2);
+    } finally {
+      const latest = await fetch(`${API}/projects/${projectId}/board`, { headers }).then(
+        (response) =>
+          expectJson<{ tasks: Array<{ id: string; title: string }> }>(response, 'cleanup board'),
+      );
+      for (const task of latest.tasks.filter((item) => item.title === title)) {
+        await fetch(`${API}/tasks/${task.id}`, { method: 'DELETE', headers });
+      }
+    }
+  });
+
   test('task estimate can be edited in the drawer and shown on the card', async ({ page }) => {
     const token = await authenticate(page);
     const projectId = await demoProjectId(token);

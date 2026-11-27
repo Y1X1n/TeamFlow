@@ -1,4 +1,4 @@
-import type { NotificationType, ProjectRole, TaskPriority } from '@teamflow/shared/enums';
+import type { NotificationType, ProjectRole, TaskPriority, TaskRecurrence } from '@teamflow/shared/enums';
 
 export interface User {
   id: string;
@@ -58,6 +58,7 @@ export interface TaskCard {
   dueDate: string | null;
   estimateMinutes: number | null;
   actualMinutes: number | null;
+  recurrence: TaskRecurrence;
   labels: string[];
   position: string;
   completedAt: string | null;
@@ -82,6 +83,7 @@ export interface TrashTask {
   dueDate: string | null;
   estimateMinutes: number | null;
   actualMinutes: number | null;
+  recurrence: TaskRecurrence;
   labels: string[];
   deletedAt: string;
 }

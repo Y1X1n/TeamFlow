@@ -1,4 +1,4 @@
-import type { ProjectRole, TaskPriority } from '@teamflow/shared/enums';
+import type { ProjectRole, TaskPriority, TaskRecurrence } from '@teamflow/shared/enums';
 
 interface AssigneeLike {
   id: string;
@@ -16,6 +16,7 @@ export interface TaskCardLike {
   dueDate?: Date | null;
   estimateMinutes?: number | null;
   actualMinutes?: number | null;
+  recurrence?: TaskRecurrence;
   labels: string[];
   position: string;
   completedAt?: Date | null;
@@ -51,6 +52,7 @@ export function serializeTaskCard(task: TaskCardLike, assigneeRole: ProjectRole 
     dueDate: task.dueDate ?? null,
     estimateMinutes: task.estimateMinutes ?? null,
     actualMinutes: task.actualMinutes ?? null,
+    recurrence: task.recurrence ?? 'NONE',
     labels: task.labels,
     position: task.position,
     completedAt: task.completedAt ?? null,

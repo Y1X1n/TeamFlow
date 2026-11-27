@@ -290,6 +290,75 @@ describe('TeamFlow API (e2e)', () => {
     expect(duplicate.body.actualMinutes).toBeNull();
   });
 
+  it('creates the next occurrence when a recurring task is completed', async () => {
+    const board = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/board`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const todo = board.body.columns.find((column: { name: string }) => column.name === '待办');
+    const done = board.body.columns.find((column: { name: string }) => column.name === '已完成');
+    const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    const created = await ownerAgent
+      .post(`/api/v1/projects/${projectId}/tasks`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        title: 'E2E 每周重复',
+        columnId: todo.id,
+        dueDate,
+        recurrence: 'WEEKLY',
+        estimateMinutes: 60,
+        labels: ['周会'],
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.recurrence).toBe('WEEKLY');
+
+    const moved = await ownerAgent
+      .patch(`/api/v1/tasks/${created.body.id}/move`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ columnId: done.id, beforeTaskId: null });
+    expect(moved.status).toBe(200);
+
+    const afterBoard = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/board`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const occurrences = afterBoard.body.tasks.filter(
+      (task: { title: string }) => task.title === 'E2E 每周重复',
+    );
+    expect(occurrences).toHaveLength(2);
+
+    const next = occurrences.find((task: { id: string }) => task.id !== created.body.id);
+    expect(next.columnId).toBe(todo.id);
+    expect(next.recurrence).toBe('WEEKLY');
+    expect(next.estimateMinutes).toBe(60);
+    expect(next.labels).toEqual(['周会']);
+    expect(new Date(next.dueDate).getTime()).toBe(
+      new Date(dueDate).getTime() + 7 * 24 * 60 * 60 * 1000,
+    );
+    expect(next.completedAt).toBeNull();
+
+    // 复制任务不继承重复规则。
+    const duplicate = await ownerAgent
+      .post(`/api/v1/tasks/${created.body.id}/duplicate`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(duplicate.status).toBe(201);
+    expect(duplicate.body.recurrence).toBe('NONE');
+
+    // 重复移入同一完成列不应再次生成实例。
+    await ownerAgent
+      .patch(`/api/v1/tasks/${created.body.id}/move`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ columnId: done.id, beforeTaskId: null })
+      .expect(200);
+    const afterSecondMove = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/board`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(
+      afterSecondMove.body.tasks.filter(
+        (task: { title: string }) => task.title === 'E2E 每周重复',
+      ),
+    ).toHaveLength(2);
+  });
+
   it('invites a viewer and enforces permissions', async () => {
     const viewerRegister = await viewerAgent.post('/api/v1/auth/register').send({
       email: viewerEmail,

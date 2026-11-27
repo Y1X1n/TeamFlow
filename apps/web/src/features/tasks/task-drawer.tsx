@@ -14,8 +14,8 @@ import {
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { toast } from 'sonner';
-import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from '@teamflow/shared/enums';
-import type { TaskPriority } from '@teamflow/shared/enums';
+import { TASK_PRIORITIES, TASK_PRIORITY_LABELS, TASK_RECURRENCES, TASK_RECURRENCE_LABELS } from '@teamflow/shared/enums';
+import type { TaskPriority, TaskRecurrence } from '@teamflow/shared/enums';
 import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import type { BoardData, TaskDetail } from '@/lib/types';
@@ -58,6 +58,7 @@ import {
   getErrorMessage,
   formatEstimateMinutes,
   isTaskPriority,
+  isTaskRecurrence,
   parseDateTimeLocal,
   parseEstimateHours,
   parseLabelsInput,
@@ -81,6 +82,7 @@ interface UpdateTaskPayload {
   dueDate?: string | null;
   estimateMinutes?: number | null;
   actualMinutes?: number | null;
+  recurrence?: TaskRecurrence;
   labels?: string[];
 }
 
@@ -229,6 +231,11 @@ export function TaskDrawer({
   const handlePriorityChange = (value: string) => {
     if (!task || !isTaskPriority(value) || value === task.priority) return;
     updateTask.mutate({ priority: value });
+  };
+
+  const handleRecurrenceChange = (value: string) => {
+    if (!task || !isTaskRecurrence(value) || value === task.recurrence) return;
+    updateTask.mutate({ recurrence: value });
   };
 
   const handleAssigneeChange = (value: string) => {
@@ -626,6 +633,31 @@ export function TaskDrawer({
                       {estimateVariance ? ` · ${estimateVariance}` : ''}
                     </p>
                   </div>
+                </div>
+
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="task-recurrence">重复</Label>
+                  <Select
+                    value={task.recurrence}
+                    onValueChange={handleRecurrenceChange}
+                    disabled={!canUpdate || updateTask.isPending}
+                  >
+                    <SelectTrigger id="task-recurrence">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TASK_RECURRENCES.map((value) => (
+                        <SelectItem key={value} value={value}>
+                          {TASK_RECURRENCE_LABELS[value]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    {task.recurrence === 'NONE'
+                      ? '不重复'
+                      : `完成后自动在未完成列生成下一次任务（${TASK_RECURRENCE_LABELS[task.recurrence]}）`}
+                  </p>
                 </div>
 
                 <div className="space-y-1.5 sm:col-span-2">

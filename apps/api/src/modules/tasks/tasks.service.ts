@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { comparePositions, positionBetween } from '@teamflow/shared/fractional';
+import { nextRecurringDueDate } from '@teamflow/shared/recurrence';
 import { TASK_DESCRIPTION_MAX_BYTES } from '@teamflow/shared/enums';
 import type {
   CreateColumnInput,
@@ -306,6 +307,7 @@ export class TasksService {
           dueDate: input.dueDate ? new Date(input.dueDate) : null,
           estimateMinutes: input.estimateMinutes ?? null,
           actualMinutes: input.actualMinutes ?? null,
+          recurrence: input.recurrence ?? 'NONE',
           labels: input.labels ?? [],
           position,
           completedAt,
@@ -381,6 +383,7 @@ export class TasksService {
           dueDate: source.dueDate,
           estimateMinutes: source.estimateMinutes,
           actualMinutes: null,
+          recurrence: 'NONE',
           labels: source.labels,
           position,
           completedAt,
@@ -478,6 +481,9 @@ export class TasksService {
         changes.actualMinutes = [task.actualMinutes ?? null, input.actualMinutes];
       }
     }
+    if (input.recurrence !== undefined && input.recurrence !== task.recurrence) {
+      changes.recurrence = [task.recurrence, input.recurrence];
+    }
     if (assigneeChanging) {
       changes.assigneeId = [task.assigneeId, input.assigneeId ?? null];
     }
@@ -496,6 +502,7 @@ export class TasksService {
         data.dueDate = input.dueDate ? new Date(input.dueDate) : null;
       if (input.estimateMinutes !== undefined) data.estimateMinutes = input.estimateMinutes;
       if (input.actualMinutes !== undefined) data.actualMinutes = input.actualMinutes;
+      if (input.recurrence !== undefined) data.recurrence = input.recurrence;
       if (input.labels !== undefined) data.labels = input.labels;
       await tx.task.update({ where: { id: task.id }, data });
       if (nextAssign) {
@@ -624,10 +631,118 @@ export class TasksService {
       position,
       completedAt: completedAt ? completedAt.toISOString() : null,
     });
+
+    // 仅在「本次完成」时生成下一次任务，避免重复完成同一任务时反复创建。
+    const becameCompleted = activityType === 'TASK_COMPLETED';
+    if (becameCompleted && task.recurrence !== 'NONE') {
+      await this.createNextRecurrence(task, target.isDone);
+    }
+
     return this.card(
       await this.taskInclude(task.id),
       await this.roleOf(task.projectId, task.assigneeId),
     );
+  }
+
+  /**
+   * 生成重复任务的下一实例：复制内容与负责人，截止时间按规则顺延，放入第一个未完成列末尾。
+   *
+   * 使用 `recurrenceGeneratedAt` 做幂等保护：只有把该字段从 null 或旧值条件更新成功的那一次才会创建。
+   * position 在事务内计算，避免并发完成多个重复任务时拿到相同的列尾位置。
+   */
+  private async createNextRecurrence(task: TaskWithRelations, completedInDoneColumn: boolean) {
+    if (!completedInDoneColumn) return;
+    const columns = await this.columnsOf(task.projectId);
+    const targetColumn = columns.find((column) => !column.isDone) ?? columns[0];
+    if (!targetColumn) return;
+
+    const dueDate = nextRecurringDueDate(task.recurrence, task.dueDate);
+    const assigneeRole = task.assigneeId
+      ? await this.prisma.projectMember.findUnique({
+          where: { projectId_userId: { projectId: task.projectId, userId: task.assigneeId } },
+          select: { role: true },
+        })
+      : null;
+    // 成员被移除后 assigneeId 仍留在任务上，生成下一实例时不再沿用。
+    const assigneeId = assigneeRole ? task.assigneeId : null;
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.task.updateMany({
+        where: {
+          id: task.id,
+          recurrence: { not: 'NONE' },
+          OR: [
+            { recurrenceGeneratedAt: null },
+            { recurrenceGeneratedAt: { lt: task.updatedAt } },
+          ],
+        },
+        data: { recurrenceGeneratedAt: new Date() },
+      });
+      if (claimed.count === 0) return null;
+
+      const existing = this.sortedByPosition(
+        await tx.task.findMany({
+          where: { columnId: targetColumn.id, deletedAt: null },
+          select: { id: true, position: true },
+        }),
+      );
+      const position = positionBetween(existing.at(-1)?.position ?? null, null);
+
+      const next = await tx.task.create({
+        data: {
+          projectId: task.projectId,
+          columnId: targetColumn.id,
+          title: task.title,
+          description:
+            task.description === null ? undefined : (task.description as Prisma.InputJsonValue),
+          priority: task.priority,
+          assigneeId,
+          createdById: task.createdById,
+          dueDate,
+          estimateMinutes: task.estimateMinutes,
+          recurrence: task.recurrence,
+          labels: task.labels,
+          position,
+        },
+      });
+      if (task.subtasks.length > 0) {
+        await tx.taskSubtask.createMany({
+          data: task.subtasks.map((subtask) => ({
+            taskId: next.id,
+            title: subtask.title,
+            position: subtask.position,
+          })),
+        });
+      }
+      // 沿用原任务的关注者（含手动关注），并确保创建者与负责人被关注。
+      const watcherIds = new Set(task.watchers.map((watcher) => watcher.userId));
+      watcherIds.add(task.createdById);
+      if (assigneeId) watcherIds.add(assigneeId);
+      await tx.taskWatcher.createMany({
+        data: [...watcherIds].map((watcherId) => ({ taskId: next.id, userId: watcherId })),
+        skipDuplicates: true,
+      });
+      await this.activities.record(tx, {
+        projectId: task.projectId,
+        actorId: task.createdById,
+        taskId: next.id,
+        type: 'TASK_CREATED',
+        payload: {
+          taskId: next.id,
+          title: next.title,
+          columnId: targetColumn.id,
+          recurringFromTaskId: task.id,
+        },
+      });
+      return { next, position };
+    });
+
+    if (!created) return;
+    await this.events.publish(task.projectId, 'task.created', {
+      taskId: created.next.id,
+      columnId: targetColumn.id,
+      position: created.position,
+    });
   }
 
   async remove(userId: string, taskId: string): Promise<void> {
@@ -676,6 +791,7 @@ export class TasksService {
       dueDate: task.dueDate,
       estimateMinutes: task.estimateMinutes,
       actualMinutes: task.actualMinutes,
+      recurrence: task.recurrence,
       labels: task.labels,
       deletedAt: task.deletedAt,
     }));

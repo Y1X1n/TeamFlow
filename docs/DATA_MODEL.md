@@ -60,6 +60,7 @@ erDiagram
       datetime due_date
       int estimate_minutes
       int actual_minutes
+      enum recurrence
       string[] labels
       string position
       datetime completed_at
@@ -233,6 +234,7 @@ enum ActivityType {
 | due_date                | timestamptz  | NULL                                   |                              |
 | estimate_minutes        | integer      | NULL                                   | 15–10080 分钟，15 分钟粒度   |
 | actual_minutes          | integer      | NULL                                   | 15–10080 分钟，15 分钟粒度   |
+| recurrence              | TaskRecurrence | NOT NULL, DEFAULT NONE               | NONE/DAILY/WEEKLY/MONTHLY    |
 | labels                  | text[]       | NOT NULL, DEFAULT `{}`                 | ≤5 个，单个 1–20 字符        |
 | position                | text         | NOT NULL                               | 分数索引，列内排序           |
 | completed_at            | timestamptz  | NULL                                   | `is_done=true` 列时非空      |
@@ -527,6 +529,8 @@ payload 不允许包含密码、访问令牌、完整文件内容。例外：`IN
 - `tasks.estimate_minutes`：`INTEGER NULL`，15–10080 分钟且为 15 的整数倍；两个迁移：
   `20261126043001_v1_11_task_estimates`（字段）与 `20261126050000_v1_11_task_estimate_check`（CHECK 约束）。
 - `tasks.actual_minutes`：`INTEGER NULL`，与预计工时相同边界；迁移 `20261126175511_v1_15_task_actual_minutes` + `20261126180000_v1_15_task_actual_check`（CHECK 约束）。复制任务时 actual_minutes 置空。
+- `tasks.recurrence`：`TaskRecurrence NOT NULL DEFAULT 'NONE'`；迁移 `20261127010400_v1_17_task_recurrence`。完成时生成下一次任务，复制任务不继承。
+- `tasks.recurrence_generated_at`：`TIMESTAMPTZ NULL`，重复任务幂等标记；迁移 `20261127020000_v1_17_task_recurrence_guard`。
 - `ActivityType` 新增 `TASK_RESTORED`：迁移 `20261126130126_v1_14_task_restore`（要求 PostgreSQL 12+ 的枚举扩展语义）。
 - 删除任务保留 `task_dependencies` 行；列表/看板查询按 `deleted_at IS NULL` 过滤，恢复后依赖继续生效。
 - 删除看板列时，该列的已删除任务迁移到目标列（无可见任务时选择另一列），避免外键阻塞。

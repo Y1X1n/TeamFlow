@@ -15,13 +15,14 @@ import {
   MessageSquare,
   MoreHorizontal,
   Paperclip,
+  Repeat,
   UserPlus,
 } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { UserAvatar } from '@/components/ui/avatar';
 import { Checkbox } from '@/components/ui/checkbox';
-import { TASK_PRIORITY_LABELS } from '@teamflow/shared/enums';
+import { TASK_PRIORITY_LABELS, TASK_RECURRENCE_LABELS } from '@teamflow/shared/enums';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,11 +65,13 @@ export function TaskCardView({
   const staleDays = staleTaskDays(task.updatedAt, task.completedAt);
   const estimateLabel = formatEstimateShort(task.estimateMinutes);
   const actualLabel = formatEstimateShort(task.actualMinutes);
+  const recurring = task.recurrence !== 'NONE';
   const labels = task.labels.slice(0, 3);
   const extraLabels = task.labels.length - labels.length;
   const a11yParts = [task.title, `${TASK_PRIORITY_LABELS[task.priority]}优先级`];
   if (estimateLabel) a11yParts.push(`预计 ${estimateLabel}`);
   if (actualLabel) a11yParts.push(`实际 ${actualLabel}`);
+  if (recurring) a11yParts.push(`重复：${TASK_RECURRENCE_LABELS[task.recurrence]}`);
   a11yParts.push(task.assignee ? `负责人 ${task.assignee.name}` : '未指派');
   if (staleDays !== null) a11yParts.push(`已 ${staleDays} 天未更新`);
   if (task.blockedByCount > 0) a11yParts.push(`被 ${task.blockedByCount} 个任务阻塞`);
@@ -99,6 +102,16 @@ export function TaskCardView({
           >
             <Clock3 className="h-3 w-3" aria-hidden="true" />
             实际 {actualLabel}
+          </Badge>
+        ) : null}
+        {recurring ? (
+          <Badge
+            variant="outline"
+            className="gap-0.5 px-1.5 py-0 text-[10px] font-normal"
+            title={`重复：${TASK_RECURRENCE_LABELS[task.recurrence]}`}
+          >
+            <Repeat className="h-3 w-3" aria-hidden="true" />
+            {TASK_RECURRENCE_LABELS[task.recurrence]}
           </Badge>
         ) : null}
         {task.completedAt ? (

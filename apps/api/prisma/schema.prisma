@@ -21,6 +21,13 @@ enum TaskPriority {
   URGENT
 }
 
+enum TaskRecurrence {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
 enum NotificationType {
   TASK_ASSIGNED
   TASK_COMMENTED
@@ -200,6 +207,8 @@ model Task {
   dueDate         DateTime?    @map("due_date") @db.Timestamptz(3)
   estimateMinutes Int?         @map("estimate_minutes")
   actualMinutes   Int?         @map("actual_minutes")
+  recurrence      TaskRecurrence @default(NONE)
+  recurrenceGeneratedAt DateTime? @map("recurrence_generated_at") @db.Timestamptz(3)
   labels          String[]     @default([])
   position        String
   completedAt     DateTime?    @map("completed_at") @db.Timestamptz(3)
