@@ -26,6 +26,10 @@
       "types": "./dist/richtext.d.ts",
       "default": "./dist/richtext.js"
     },
+    "./recurrence": {
+      "types": "./dist/recurrence.d.ts",
+      "default": "./dist/recurrence.js"
+    },
     "./schemas": {
       "types": "./dist/schemas.d.ts",
       "default": "./dist/schemas.js"

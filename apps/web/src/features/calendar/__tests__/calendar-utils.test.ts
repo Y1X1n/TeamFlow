@@ -24,6 +24,7 @@ function makeTask(overrides: Partial<TaskCard> = {}): TaskCard {
     dueDate: '2026-11-26T00:00:00.000Z',
     estimateMinutes: null,
     actualMinutes: null,
+    recurrence: 'NONE',
     labels: [],
     position: 'a',
     completedAt: null,

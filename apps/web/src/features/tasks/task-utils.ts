@@ -5,8 +5,9 @@ import {
   TASK_LABELS_MAX,
   TASK_LABEL_MAX_LENGTH,
   TASK_PRIORITIES,
+  TASK_RECURRENCES,
 } from '@teamflow/shared/enums';
-import type { TaskPriority } from '@teamflow/shared/enums';
+import type { TaskPriority, TaskRecurrence } from '@teamflow/shared/enums';
 import { ApiError } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import type { BoardData, TaskDetail } from '@/lib/types';
@@ -23,6 +24,10 @@ export function getErrorMessage(error: unknown): string {
 
 export function isTaskPriority(value: string): value is TaskPriority {
   return (TASK_PRIORITIES as readonly string[]).includes(value);
+}
+
+export function isTaskRecurrence(value: string): value is TaskRecurrence {
+  return (TASK_RECURRENCES as readonly string[]).includes(value);
 }
 
 export interface LabelParseResult {

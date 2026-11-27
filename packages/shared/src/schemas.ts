@@ -13,6 +13,7 @@ import {
   TASK_LABEL_MAX_LENGTH,
   TASK_LABELS_MAX,
   TASK_PRIORITIES,
+  TASK_RECURRENCES,
 } from './enums';
 import { invalidPermissionKeys, isPermissionKey, type PermissionOverrides } from './permissions';
 
@@ -191,6 +192,7 @@ export const createTaskSchema = z
     dueDate: dateTimeSchema.nullable().optional(),
     estimateMinutes: estimateMinutesSchema.nullable().optional(),
     actualMinutes: estimateMinutesSchema.nullable().optional(),
+    recurrence: z.enum(TASK_RECURRENCES).optional(),
     labels: labelsSchema.optional(),
     columnId: idSchema.optional(),
   })
@@ -206,6 +208,7 @@ export const updateTaskSchema = z
     dueDate: dateTimeSchema.nullable().optional(),
     estimateMinutes: estimateMinutesSchema.nullable().optional(),
     actualMinutes: estimateMinutesSchema.nullable().optional(),
+    recurrence: z.enum(TASK_RECURRENCES).optional(),
     labels: labelsSchema.optional(),
   })
   .strict()
