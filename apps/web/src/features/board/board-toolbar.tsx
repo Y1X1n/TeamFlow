@@ -1,12 +1,14 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import {
   CheckSquare,
   Download,
   Loader2,
   Search,
   Settings2,
+  SlidersHorizontal,
   Trash2,
   Wifi,
   WifiOff,
@@ -130,6 +132,11 @@ export function BoardToolbar({
     assigneeFilter !== 'all' ||
     priorityFilter !== 'all' ||
     dueFilter !== 'all';
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilterCount =
+    (assigneeFilter !== 'all' ? 1 : 0) +
+    (priorityFilter !== 'all' ? 1 : 0) +
+    (dueFilter !== 'all' ? 1 : 0);
 
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2">
@@ -150,6 +157,39 @@ export function BoardToolbar({
         />
       </div>
 
+      <Select
+        value={viewMode}
+        onValueChange={(value) => {
+          if (value === 'board' || value === 'list') onViewModeChange(value);
+        }}
+      >
+        <SelectTrigger className="h-8 w-28" aria-label="视图切换">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="board">看板</SelectItem>
+          <SelectItem value="list">列表</SelectItem>
+        </SelectContent>
+      </Select>
+
+      <Button
+        type="button"
+        variant={filtersOpen || activeFilterCount > 0 ? 'secondary' : 'outline'}
+        size="sm"
+        className="h-8 md:hidden"
+        aria-expanded={filtersOpen}
+        onClick={() => setFiltersOpen((previous) => !previous)}
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+        筛选{activeFilterCount > 0 ? ` ${activeFilterCount}` : ''}
+      </Button>
+
+      <div
+        className={cn(
+          'flex-wrap items-center gap-2',
+          filtersOpen ? 'flex' : 'hidden md:flex',
+        )}
+      >
       <Select value={assigneeFilter} onValueChange={onAssigneeFilterChange}>
         <SelectTrigger className="h-8 w-36" aria-label="按负责人筛选">
           <SelectValue placeholder="负责人" />
@@ -203,21 +243,6 @@ export function BoardToolbar({
         </SelectContent>
       </Select>
 
-      <Select
-        value={viewMode}
-        onValueChange={(value) => {
-          if (value === 'board' || value === 'list') onViewModeChange(value);
-        }}
-      >
-        <SelectTrigger className="h-8 w-28" aria-label="视图切换">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="board">看板</SelectItem>
-          <SelectItem value="list">列表</SelectItem>
-        </SelectContent>
-      </Select>
-
       {viewMode === 'board' ? (
         <Select
           value={groupBy}
@@ -253,6 +278,7 @@ export function BoardToolbar({
           重置筛选
         </Button>
       ) : null}
+      </div>
 
       <Button
         type="button"

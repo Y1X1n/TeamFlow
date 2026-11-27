@@ -160,7 +160,7 @@ export function BoardColumnView({
   return (
     <section
       aria-label={`列：${column.name}`}
-      className="flex max-h-[calc(100vh_-_15rem)] w-80 shrink-0 flex-col rounded-xl border bg-muted/30"
+      className="flex max-h-[calc(100dvh_-_15rem)] w-[85vw] max-w-80 shrink-0 snap-start flex-col rounded-xl border bg-muted/30 sm:w-80"
     >
       <header className="flex items-center gap-2 border-b px-3 py-2.5">
         <span

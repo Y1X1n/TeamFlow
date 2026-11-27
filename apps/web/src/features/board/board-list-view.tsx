@@ -2,8 +2,16 @@
 
 import { useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
+import { TASK_RECURRENCE_LABELS } from '@teamflow/shared/enums';
 import { Checkbox } from '@/components/ui/checkbox';
 import { UserAvatar } from '@/components/ui/avatar';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { avatarColor, cn, formatDateTime, isOverdue } from '@/lib/utils';
 import type { BoardColumn, MemberSummary, TaskCard } from '@/lib/types';
 import { PriorityBadge } from '@/features/tasks/priority-badge';
@@ -24,6 +32,17 @@ interface BoardListViewProps {
   selectedIds: Set<string>;
   onToggleSelected: (taskId: string, selected: boolean) => void;
   onOpenTask: (taskId: string) => void;
+}
+
+const MOBILE_SORT_OPTIONS: Array<{ value: BoardListSortKey; label: string }> = [
+  { value: 'position', label: '看板顺序' },
+  { value: 'dueDate', label: '截止时间' },
+  { value: 'priority', label: '优先级' },
+  { value: 'updatedAt', label: '更新时间' },
+];
+
+function isBoardListSortKey(value: string): value is BoardListSortKey {
+  return MOBILE_SORT_OPTIONS.some((option) => option.value === value);
 }
 
 const SORTABLE_COLUMNS: Array<{
@@ -78,8 +97,109 @@ export function BoardListView({
   };
 
   return (
-    <div className="mt-4 overflow-x-auto rounded-xl border bg-card">
-      <table className="w-full min-w-[1020px] border-collapse text-sm">
+    <>
+      {/* 手机端：排序入口 + 卡片列表，避免横向拖动表格。 */}
+      <div className="mt-4 flex items-center gap-2 md:hidden">
+        <span className="text-xs text-muted-foreground">排序</span>
+        <Select
+          value={sortKey}
+          onValueChange={(value) => {
+            if (!isBoardListSortKey(value)) return;
+            setSortKey(value);
+            setSortDirection(defaultListSortDirection(value));
+          }}
+        >
+          <SelectTrigger className="h-9 w-36" aria-label="列表排序">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {MOBILE_SORT_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="mt-2 space-y-2 md:hidden">
+        {sortedTasks.length === 0 ? (
+          <p className="rounded-xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+            当前筛选下没有任务
+          </p>
+        ) : (
+          sortedTasks.map((task) => {
+            const assignee = task.assignee
+              ? (membersById.get(task.assignee.userId) ?? task.assignee)
+              : null;
+            const estimate = formatEstimateMinutes(task.estimateMinutes);
+            const actual = formatEstimateMinutes(task.actualMinutes);
+            const overdue = isOverdue(task.dueDate, task.completedAt);
+            return (
+              <div key={task.id} className="rounded-xl border bg-card p-3">
+                <div className="flex items-start gap-2">
+                  {selectionMode ? (
+                    <Checkbox
+                      checked={selectedIds.has(task.id)}
+                      onCheckedChange={(checked) => onToggleSelected(task.id, checked === true)}
+                      disabled={selectionDisabled}
+                      aria-label={`选择任务：${task.title}`}
+                      className="mt-0.5 shrink-0"
+                    />
+                  ) : null}
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={`打开任务：${task.title}`}
+                    onClick={() => onOpenTask(task.id)}
+                  >
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <PriorityBadge priority={task.priority} />
+                      {task.recurrence !== 'NONE' ? (
+                        <span className="rounded border px-1.5 py-0 text-[10px] text-muted-foreground">
+                          {TASK_RECURRENCE_LABELS[task.recurrence]}
+                        </span>
+                      ) : null}
+                      {task.blockedByCount > 0 ? (
+                        <span className="text-[10px] text-amber-700">阻塞 {task.blockedByCount}</span>
+                      ) : null}
+                    </div>
+                    <p
+                      className={cn(
+                        'mt-1 line-clamp-2 text-sm font-medium',
+                        task.completedAt && 'text-muted-foreground line-through',
+                      )}
+                    >
+                      {task.title}
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                      <span>{columnNames.get(task.columnId) ?? '—'}</span>
+                      <span>{assignee?.name ?? '未指派'}</span>
+                      {task.dueDate ? (
+                        <span className={cn(overdue && 'font-medium text-destructive')}>
+                          {formatDateTime(task.dueDate)}
+                        </span>
+                      ) : null}
+                      {estimate ? <span>预计 {estimate}</span> : null}
+                      {actual ? <span>实际 {actual}</span> : null}
+                    </div>
+                    {task.labels.length > 0 ? (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {task.labels.slice(0, 3).map((label) => (
+                          <TaskLabelBadge key={label} label={label} />
+                        ))}
+                      </div>
+                    ) : null}
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div className="mt-4 hidden overflow-x-auto rounded-xl border bg-card md:block">
+        <table className="w-full min-w-[1020px] border-collapse text-sm">
         <caption className="sr-only">任务列表视图，按当前搜索和筛选结果展示</caption>
         <thead className="bg-muted/40 text-xs text-muted-foreground">
           <tr className="border-b">
@@ -284,6 +404,7 @@ export function BoardListView({
           )}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
   );
 }
