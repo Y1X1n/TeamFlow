@@ -23,7 +23,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { AlertCircle, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import type { TaskPriority } from '@teamflow/shared/enums';
 import { comparePositions } from '@teamflow/shared/fractional';
@@ -31,6 +32,7 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { downloadTextFile } from '@/lib/download';
 import { queryKeys } from '@/lib/query-keys';
+import { cn } from '@/lib/utils';
 import type { BoardData, MemberSummary, TaskCard, TaskDetail } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -62,6 +64,7 @@ import type { BoardGroupBy } from './board-grouping';
 import {
   COLUMN_DROPPABLE_PREFIX,
   buildColumnTaskIds,
+  columnDotClass,
   columnIdFromOver,
   dropTargetTypeFromOver,
   resolveDrop,
@@ -166,6 +169,8 @@ export function BoardPage({ projectId }: { projectId: string }) {
   const [dueFilter, setDueFilter] = useState<DueFilter>('all');
   const [groupBy, setGroupBy] = useState<BoardGroupBy>('none');
   const [viewMode, setViewMode] = useState<BoardViewMode>('board');
+  const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
+  const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -315,6 +320,42 @@ export function BoardPage({ projectId }: { projectId: string }) {
     }
     return result;
   }, [columns, columnTaskIds, taskById]);
+
+  useEffect(() => {
+    if (columns.length === 0) {
+      setActiveColumnId(null);
+      return;
+    }
+    setActiveColumnId((previous) =>
+      previous && columns.some((column) => column.id === previous) ? previous : columns[0]!.id,
+    );
+  }, [columns]);
+
+  const handleBoardScroll = () => {
+    const container = boardScrollRef.current;
+    if (!container) return;
+    const center = container.getBoundingClientRect().left + container.clientWidth / 2;
+    let nearest: string | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const column of columns) {
+      const element = document.getElementById(`board-col-${column.id}`);
+      if (!element) continue;
+      const rect = element.getBoundingClientRect();
+      const distance = Math.abs(rect.left + rect.width / 2 - center);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = column.id;
+      }
+    }
+    if (nearest) setActiveColumnId(nearest);
+  };
+
+  const scrollToColumn = (columnId: string) => {
+    setActiveColumnId(columnId);
+    document
+      .getElementById(`board-col-${columnId}`)
+      ?.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+  };
 
   const visibleSelectedIds = useMemo(
     () => filteredTasks.filter((task) => selectedIds.has(task.id)).map((task) => task.id),
@@ -848,6 +889,42 @@ export function BoardPage({ projectId }: { projectId: string }) {
         />
       ) : null}
 
+      {viewMode === 'board' && columns.length > 0 ? (
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 scrollbar-none md:hidden">
+          {columns.map((column, index) => {
+            const active = column.id === activeColumnId;
+            return (
+              <button
+                key={column.id}
+                type="button"
+                onClick={() => scrollToColumn(column.id)}
+                aria-pressed={active}
+                className={cn(
+                  'inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm transition-colors active:bg-muted',
+                  active
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-border/70 bg-card text-muted-foreground',
+                )}
+              >
+                <span
+                  className={cn('h-2 w-2 rounded-full', columnDotClass(index))}
+                  aria-hidden="true"
+                />
+                {column.name}
+                <span
+                  className={cn(
+                    'rounded-full px-1.5 text-[10px] tabular-nums',
+                    active ? 'bg-primary/15' : 'bg-muted',
+                  )}
+                >
+                  {tasksByColumn[column.id]?.length ?? 0}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
       {viewMode === 'list' ? (
         columns.length === 0 ? (
           emptyColumnsState
@@ -875,7 +952,11 @@ export function BoardPage({ projectId }: { projectId: string }) {
           onDragEnd={handleDragEnd}
           onDragCancel={handleDragCancel}
         >
-          <div className="mt-4 flex flex-1 snap-x items-start gap-4 overflow-x-auto scroll-px-4 pb-4 scrollbar-thin [@media(pointer:coarse)]:snap-mandatory">
+          <div
+            ref={boardScrollRef}
+            onScroll={handleBoardScroll}
+            className="mt-4 flex flex-1 snap-x items-start gap-4 overflow-x-auto scroll-px-4 pb-4 scrollbar-thin [@media(pointer:coarse)]:snap-mandatory"
+          >
             {columns.length === 0 ? (
               emptyColumnsState
             ) : (
@@ -885,6 +966,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
                   <BoardColumnView
                     key={column.id}
                     column={column}
+                    domId={`board-col-${column.id}`}
                     colorIndex={index}
                     tasks={tasksByColumn[column.id] ?? []}
                     groupBy={groupBy}
@@ -920,6 +1002,21 @@ export function BoardPage({ projectId }: { projectId: string }) {
           </DragOverlay>
         </DndContext>
       )}
+
+      {canCreate && typeof document !== 'undefined'
+        ? createPortal(
+            <Button
+              type="button"
+              size="icon"
+              aria-label="新建任务"
+              onClick={() => setCreateOpen(true)}
+              className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-4 z-20 h-14 w-14 rounded-full shadow-lg shadow-primary/25 md:hidden"
+            >
+              <Plus className="h-6 w-6" aria-hidden="true" />
+            </Button>,
+            document.body,
+          )
+        : null}
 
       <CreateTaskDialog
         open={createOpen}

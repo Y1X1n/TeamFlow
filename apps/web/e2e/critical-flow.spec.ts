@@ -60,8 +60,8 @@ test.describe('critical flows', () => {
     await page.goto('/');
     await expect(page.getByRole('link', { name: /打开项目/ }).first()).toBeVisible();
     await openDemoProject(page);
-    await expect(page.getByText('待办').first()).toBeVisible();
-    await expect(page.getByText('进行中').first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: '待办' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '进行中' })).toBeVisible();
     await expect(page.getByRole('button', { name: '新建任务', exact: true })).toBeVisible();
   });
 

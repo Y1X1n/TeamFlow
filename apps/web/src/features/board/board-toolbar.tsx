@@ -153,7 +153,7 @@ export function BoardToolbar({
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="搜索任务标题"
-          className="h-8 pl-8"
+          className="h-10 pl-8 sm:h-8"
         />
       </div>
 
@@ -163,7 +163,7 @@ export function BoardToolbar({
           if (value === 'board' || value === 'list') onViewModeChange(value);
         }}
       >
-        <SelectTrigger className="h-8 w-28" aria-label="视图切换">
+        <SelectTrigger className="h-10 w-32 sm:h-8 sm:w-28" aria-label="视图切换">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -176,7 +176,7 @@ export function BoardToolbar({
         type="button"
         variant={filtersOpen || activeFilterCount > 0 ? 'secondary' : 'outline'}
         size="sm"
-        className="h-8 md:hidden"
+        className="h-10 md:hidden"
         aria-expanded={filtersOpen}
         onClick={() => setFiltersOpen((previous) => !previous)}
       >
@@ -284,18 +284,26 @@ export function BoardToolbar({
         type="button"
         variant="outline"
         size="sm"
-        className="h-8"
+        className="h-10 px-2.5 sm:h-8 sm:px-3"
         onClick={onExportCsv}
         disabled={exportDisabled}
+        aria-label="导出 CSV"
       >
         <Download className="h-3.5 w-3.5" aria-hidden="true" />
-        导出 CSV
+        <span className="hidden sm:inline">导出 CSV</span>
       </Button>
 
       {canOpenTrash ? (
-        <Button type="button" variant="ghost" size="sm" className="h-8" onClick={onOpenTrash}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-10 px-2.5 sm:h-8 sm:px-3"
+          onClick={onOpenTrash}
+          aria-label="回收站"
+        >
           <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-          回收站
+          <span className="hidden sm:inline">回收站</span>
         </Button>
       ) : null}
 
@@ -305,7 +313,7 @@ export function BoardToolbar({
             type="button"
             variant={selectionMode ? 'secondary' : 'outline'}
             size="sm"
-            className="h-8"
+            className="h-10 sm:h-8"
             onClick={onToggleSelection}
           >
             {selectionMode ? (
@@ -328,7 +336,7 @@ export function BoardToolbar({
         </span>
         <ConnectionStatusPill status={connectionStatus} />
         {canManageColumns ? (
-          <Button asChild variant="outline" size="sm" className={cn('h-8')}>
+          <Button asChild variant="outline" size="sm" className="hidden h-8 sm:inline-flex">
             <Link href={`/projects/${projectId}/settings`}>
               <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
               管理看板列

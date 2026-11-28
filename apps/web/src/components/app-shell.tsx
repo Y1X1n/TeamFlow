@@ -89,15 +89,15 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-30 border-b bg-background/90 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-border/70 bg-background/85 backdrop-blur-md">
         <div
           className={cn(
-            'mx-auto flex h-14 items-center gap-4 px-4',
+            'mx-auto flex h-12 items-center gap-3 px-3 md:h-14 md:gap-4 md:px-4',
             fluidLayout ? 'max-w-none' : 'max-w-6xl',
           )}
         >
-          <Link href="/" className="flex items-center gap-2 text-sm font-semibold sm:text-base">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-sm text-primary-foreground">
+          <Link href="/" className="flex items-center gap-2 text-[15px] font-semibold tracking-tight">
+            <span className="flex h-7 w-7 items-center justify-center rounded-[10px] bg-primary text-sm text-primary-foreground shadow-sm">
               T
             </span>
             <span>TeamFlow</span>
@@ -251,7 +251,7 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
       </header>
       <main
         className={cn(
-          'mx-auto px-4 py-6 pb-safe-nav md:pb-6',
+          'mx-auto px-4 py-4 pb-safe-nav md:py-6 md:pb-6',
           fluidLayout ? 'max-w-none' : 'max-w-6xl',
         )}
       >
@@ -264,9 +264,9 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
       {/* 移动端底部 Tab；桌面端由顶部导航承载。 */}
       <nav
         aria-label="移动端主导航"
-        className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 pb-safe backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-background/95 pb-safe shadow-[0_-4px_20px_rgba(15,23,42,0.06)] backdrop-blur-md md:hidden"
       >
-        <div className="flex items-stretch justify-around px-1">
+        <div className="flex items-stretch justify-around px-2">
           {APP_NAV.map((item) => {
             const active = item.href === activeNavHref;
             return (
@@ -276,14 +276,19 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
                 aria-label={item.label}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'flex min-h-[3.25rem] flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 text-[11px] transition-colors',
+                  'flex min-h-[3.5rem] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[10px] font-medium transition-colors',
                   active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
                 )}
               >
-                <span className="relative">
-                  <item.icon className="h-5 w-5" aria-hidden="true" />
+                <span
+                  className={cn(
+                    'relative flex h-7 w-10 items-center justify-center rounded-full transition-colors',
+                    active && 'bg-primary/10',
+                  )}
+                >
+                  <item.icon className="h-[21px] w-[21px]" aria-hidden="true" />
                   {item.href === '/inbox' && (unread?.count ?? 0) > 0 ? (
-                    <span className="absolute -right-1.5 -top-1 min-w-[14px] rounded-full bg-primary px-1 text-[9px] leading-3.5 text-primary-foreground">
+                    <span className="absolute -right-0.5 -top-0.5 min-w-[15px] rounded-full bg-primary px-1 text-[9px] leading-[15px] text-primary-foreground">
                       {(unread?.count ?? 0) > 9 ? '9+' : unread?.count}
                     </span>
                   ) : null}
