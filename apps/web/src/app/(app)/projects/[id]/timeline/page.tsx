@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { ProjectPageError, ProjectPageHeader } from '@/features/activities/project-page-header';
 import { describeActivity } from '@/features/activities/activity-description';
+import { escapeCsvCell } from '@/features/board/board-csv';
 import { getErrorMessage } from '@/features/tasks/task-utils';
 import { UserAvatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -49,10 +50,6 @@ const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   ATTACHMENT_DELETED: '删除附件',
   REPORT_GENERATED: '生成周报',
 };
-
-function csvCell(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
-}
 
 function csvDateTime(value: string): string {
   return new Intl.DateTimeFormat('zh-CN', {
@@ -105,7 +102,7 @@ function buildActivitiesCsv(activities: Activity[], names: Map<string, string>):
       description.excerpt ? `${description.text}：${description.excerpt}` : description.text,
     ]);
   }
-  const body = rows.map((row) => row.map(csvCell).join(',')).join('\r\n');
+  const body = rows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
   return `\uFEFF${body}\r\n`;
 }
 

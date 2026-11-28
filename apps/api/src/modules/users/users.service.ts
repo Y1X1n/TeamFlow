@@ -55,6 +55,7 @@ export class UsersService {
     const where: Prisma.TaskWhereInput = {
       assigneeId: userId,
       deletedAt: null,
+      project: { members: { some: { userId } } },
     };
     if (status === 'open') where.completedAt = null;
     if (status === 'done') where.completedAt = { not: null };

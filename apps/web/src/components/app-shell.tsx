@@ -58,7 +58,10 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
   } = useSlidingIndicator(activeNavHref);
 
   useEffect(() => {
-    if (status === 'guest') router.replace('/login');
+    if (status === 'guest') {
+      const next = `${window.location.pathname}${window.location.search}`;
+      router.replace(`/login?next=${encodeURIComponent(next)}`);
+    }
   }, [status, router]);
 
   useEffect(() => {

@@ -109,12 +109,14 @@ export class JobsService implements OnApplicationBootstrap, OnApplicationShutdow
         assigneeId: true,
         createdById: true,
         projectId: true,
+        project: { select: { members: { select: { userId: true } } } },
       },
     });
     const dateKey = shanghaiDateKey(now);
     const entries = tasks.flatMap((task) => {
       if (!task.dueDate) return [];
       const recipient = task.assigneeId ?? task.createdById;
+      if (!task.project.members.some((member) => member.userId === recipient)) return [];
       const overdue = task.dueDate.getTime() < now.getTime();
       return [
         {

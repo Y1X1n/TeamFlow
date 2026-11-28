@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { avatarColor, fileSize, isOverdue } from '../utils';
+import { avatarColor, fileSize, isOverdue, safeNextPath } from '../utils';
 
 describe('utils', () => {
   it('assigns stable avatar colors', () => {
@@ -17,5 +17,13 @@ describe('utils', () => {
     expect(fileSize(512)).toBe('512 B');
     expect(fileSize(2048)).toBe('2.0 KB');
     expect(fileSize(3 * 1024 * 1024)).toBe('3.0 MB');
+  });
+
+  it('only allows internal redirect targets', () => {
+    expect(safeNextPath('/invite/abc')).toBe('/invite/abc');
+    expect(safeNextPath('https://evil.example')).toBe('/');
+    expect(safeNextPath('//evil.example')).toBe('/');
+    expect(safeNextPath('/\\evil.example')).toBe('/');
+    expect(safeNextPath(null)).toBe('/');
   });
 });

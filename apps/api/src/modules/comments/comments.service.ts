@@ -227,12 +227,26 @@ export class CommentsService {
       commentAuthorName: comment.author.name,
       excerpt: analyzed.text.slice(0, 120),
     };
+    const targetIds = [...targets.keys()];
+    const memberIds =
+      targetIds.length > 0
+        ? new Set(
+            (
+              await this.prisma.projectMember.findMany({
+                where: { projectId: task.projectId, userId: { in: targetIds } },
+                select: { userId: true },
+              })
+            ).map((member) => member.userId),
+          )
+        : new Set<string>();
     await this.notifications.createMany(
-      [...targets.entries()].map(([targetId, type]) => ({
-        userId: targetId,
-        type,
-        payload,
-      })),
+      [...targets.entries()]
+        .filter(([targetId]) => memberIds.has(targetId))
+        .map(([targetId, type]) => ({
+          userId: targetId,
+          type,
+          payload,
+        })),
     );
     return this.serialize(comment, userId);
   }

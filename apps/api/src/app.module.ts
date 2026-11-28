@@ -6,6 +6,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
 import { validateEnv } from './config/env';
+import { redactSensitiveUrl } from './common/log-redaction';
 import { HealthModule } from './health/health.module';
 import { ActivitiesModule } from './modules/activities/activities.module';
 import { AiModule } from './modules/ai/ai.module';
@@ -65,6 +66,21 @@ import { RedisModule } from './redis/redis.module';
               'req.body.newPassword',
             ],
             censor: '[redacted]',
+          },
+          serializers: {
+            req: (req: {
+              id?: string;
+              method?: string;
+              url?: string;
+              remoteAddress?: string;
+              remotePort?: number;
+            }) => ({
+              id: req.id,
+              method: req.method,
+              url: redactSensitiveUrl(req.url ?? ''),
+              remoteAddress: req.remoteAddress,
+              remotePort: req.remotePort,
+            }),
           },
           autoLogging: true,
         },

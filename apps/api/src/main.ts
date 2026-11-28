@@ -29,6 +29,10 @@ async function bootstrap(): Promise<void> {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+  const trustProxy = config.get<number>('TRUST_PROXY') ?? 0;
+  if (trustProxy > 0) {
+    app.getHttpAdapter().getInstance().set('trust proxy', trustProxy);
+  }
 
   app.use(helmet());
   app.use(cookieParser());
