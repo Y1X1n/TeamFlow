@@ -371,7 +371,7 @@ A 失败则回滚 UI 并提示；A 也应收到 ws 广播（可用服务端序�
 
 ```
 ADMIN 输入邮箱生成邀请 → 返回链接 /invite#token（7 天有效，token 仅在 URL 片段中，不进入服务端日志）
-被邀请人打开 → 未登录先登录/注册 → POST /invites/{token}/accept
+被邀请人打开 → 未登录先登录/注册 → POST /invites/accept（请求体 token）
 → 创建 ProjectMember + 活动 + 通知邀请人 → 跳转项目看板
 ```
 

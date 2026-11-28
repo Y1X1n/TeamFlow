@@ -208,6 +208,16 @@ export class StorageService implements OnModuleInit {
     return payload;
   }
 
+  async describeLocal(token: string): Promise<{ fileName: string; mimeType: string }> {
+    const payload = this.verifyLocalToken(token);
+    try {
+      await stat(this.localPath(payload.key));
+    } catch {
+      throw new DomainError('NOT_FOUND', 404, 'File not found');
+    }
+    return { fileName: payload.name, mimeType: payload.mime };
+  }
+
   async openLocal(token: string): Promise<LocalFile> {
     const payload = this.verifyLocalToken(token);
     let consumed: string | null;

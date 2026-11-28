@@ -802,7 +802,7 @@ export class AiService {
             {
               role: 'user',
               content: JSON.stringify({
-                title,
+                title: title.slice(0, 200),
                 description: (description ?? '').slice(0, 2000) || null,
               }),
             },

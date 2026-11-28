@@ -8,7 +8,15 @@ export default function InviteHashPage() {
 
   useEffect(() => {
     const raw = window.location.hash.replace(/^#/, '');
-    setToken(raw ? decodeURIComponent(raw) : '');
+    if (!raw) {
+      setToken('');
+      return;
+    }
+    try {
+      setToken(decodeURIComponent(raw));
+    } catch {
+      setToken('');
+    }
   }, []);
 
   return (

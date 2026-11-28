@@ -93,6 +93,8 @@ AI_ALLOW_LOOPBACK=false
 
 本地代理示例：`AI_BASE_URL=http://127.0.0.1:3425/v1`，并设置 `AI_ALLOW_LOOPBACK=true`（仅开发）。服务端在每次调用前校验协议与主机，并拒绝私有/保留地址；开发环境允许 loopback 仅用于本机代理。
 
+生产环境（`NODE_ENV=production`）要求 `AI_BASE_URL` 使用 HTTPS 且 `AI_ALLOW_LOOPBACK=false`；本地 HTTP 网关请只用于开发，或在前面加 TLS 反向代理。
+
 ### Agent Mail 配置（可选）
 
 周报页的“智能发送邮件”通过腾讯 `agently-cli` 发送。默认关闭，需先在本机完成指定邮箱授权：

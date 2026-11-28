@@ -69,7 +69,8 @@
 | POST   | `/projects/{projectId}/invites`            | `member:invite`    | 生成邀请（返回明文链接一次） |
 | DELETE | `/projects/{projectId}/invites/{inviteId}` | `member:invite`    | 撤销邀请                     |
 | GET    | `/invites/{token}`                         | 登录               | 邀请预览                     |
-| POST   | `/invites/{token}/accept`                  | 登录（邮箱须匹配） | 接受邀请                     |
+| POST   | `/invites/{token}/accept`                  | 登录（邮箱须匹配） | 接受邀请（旧路径兼容）       |
+| POST   | `/invites/preview` / `/invites/accept`     | 登录（邮箱须匹配） | 请求体携带 token，供新邀请链接使用 |
 
 **邀请规则**
 
@@ -437,7 +438,7 @@ TaskCard 新增 `subtaskTotal/subtaskDone`；TaskDetail 新增 `subtasks/watchin
 | POST | `/projects/{projectId}/reports/current/email/send`    | `report:generate` | 使用 previewToken 发送（10 分钟、一次性）；`confirm` 必须为 `true`，记录活动审计 |
 
 - 发送通过本机已授权的 `agently-cli`；服务端不保存邮箱密码/OAuth Token。
-- 预览请求：`{recipients[], tone?, note?}`；发送请求：`{recipients[], subject, body, confirm:true}`。
+- 预览请求：`{recipients[], tone?, note?}`；发送请求：`{previewToken, subject, body, confirm:true}`。预览响应返回 10 分钟一次性 `previewToken`，收件人必须是项目成员。
 - `recipients` 1–20 个合法邮箱，去重；允许项目外邮箱，但必须由用户显式选择。
 - Agent Mail 未配置/未授权时，预览仍返回内容且 `emailAvailable=false`，发送返回 503。
 - 每次成功发送写 `REPORT_EMAIL_SENT` 活动（主题、收件人数、发件人），不记录正文。

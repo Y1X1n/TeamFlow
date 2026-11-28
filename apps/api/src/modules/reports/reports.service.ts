@@ -985,10 +985,11 @@ export class ReportsService {
       throw new DomainError('EMAIL_PREVIEW_INVALID', 422, '邮件预览凭证与当前项目不匹配');
     }
     await this.assertRecipientsAreMembers(projectId, preview.r);
+    const previewKey = `report-email-preview:${preview.j}`;
     let consumed: string | null;
     try {
       consumed = await this.redis.client.set(
-        `report-email-preview:${preview.j}`,
+        previewKey,
         '1',
         'EX',
         Math.max(1, preview.e - Math.floor(Date.now() / 1000)),
@@ -1001,11 +1002,17 @@ export class ReportsService {
       throw new DomainError('EMAIL_PREVIEW_USED', 409, '邮件预览已使用或过期，请重新生成');
     }
 
-    const result = await this.agentMail.send({
-      recipients: preview.r,
-      subject: input.subject,
-      body: input.body,
-    });
+    const result = await this.agentMail
+      .send({
+        recipients: preview.r,
+        subject: input.subject,
+        body: input.body,
+      })
+      .catch(async (error: unknown) => {
+        // 发送未成功时释放 token，允许用户修正配置后重试同一次预览。
+        await this.redis.client.del(previewKey).catch(() => undefined);
+        throw error;
+      });
     try {
       await this.prisma.$transaction(async (tx) => {
         await this.activities.record(tx, {

@@ -814,7 +814,7 @@
 | ---------- | -------------------------------------------------------------------- |
 | Typecheck  | `pnpm typecheck` 通过                                                |
 | Lint       | `pnpm lint` 通过（0 warning）                                        |
-| 单元测试   | shared 23、API 104、web 148 通过（新增附件签名/私有 IP/env 用例）    |
+| 单元测试   | shared 23、API 104、web 150 通过（新增附件签名/私有 IP/env/邀请链接用例） |
 | API e2e    | 38 / 38 通过（新增一次性文件链接、邮件 token、邀请请求体用例）        |
 | Playwright | 25 / 25 通过                                                         |
 | 生产构建   | `pnpm build` 通过                                                    |
