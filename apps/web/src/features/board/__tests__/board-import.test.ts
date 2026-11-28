@@ -3,6 +3,7 @@ import type { BoardColumn, MemberSummary } from '@/lib/types';
 import {
   boardImportTemplateCsv,
   buildBoardImportPlan,
+  decodeCsvBytes,
   parseCsv,
 } from '../board-import';
 
@@ -96,13 +97,55 @@ describe('buildBoardImportPlan', () => {
   });
 
   it('rejects impossible calendar dates instead of silently accepting them', () => {
-    const csv = ['任务标题,截止时间', '非法日期,2026-13-45', '非法小时,2026-12-01 25:00'].join('\n');
+    const csv = [
+      '任务标题,截止时间',
+      '非法日期,2026-13-45',
+      '非法小时,2026-12-01 25:00',
+      '不存在的日子,2026-02-30',
+      '小月三十一,2026-04-31',
+    ].join('\n');
 
     const plan = buildBoardImportPlan(csv, columns, members, 'col-todo');
 
     expect(plan.validRows).toHaveLength(0);
-    expect(plan.rows[0]?.errors).toContain('截止时间格式无法识别');
-    expect(plan.rows[1]?.errors).toContain('截止时间格式无法识别');
+    for (const row of plan.rows) {
+      expect(row.errors).toContain('截止时间格式无法识别');
+    }
+  });
+
+  it('rejects labels longer than the shared limit', () => {
+    const csv = ['任务标题,标签', `超长标签,${'标'.repeat(21)}`].join('\n');
+
+    const plan = buildBoardImportPlan(csv, columns, members, 'col-todo');
+
+    expect(plan.validRows).toHaveLength(0);
+    expect(plan.rows[0]?.errors.join()).toContain('超过 20 个字符');
+  });
+
+  it('strips the CSV-injection guard prefix added by export', () => {
+    const csv = [
+      '任务标题,看板列,标签',
+      `'- 需求梳理,待办,'- 标签`,
+    ].join('\n');
+
+    const plan = buildBoardImportPlan(csv, columns, members, 'col-todo');
+
+    expect(plan.validRows[0]).toMatchObject({
+      title: '- 需求梳理',
+      labels: ['- 标签'],
+    });
+  });
+
+  it('explains a file that only contains the header', () => {
+    const plan = buildBoardImportPlan('任务标题,看板列', columns, members, 'col-todo');
+
+    expect(plan.globalErrors).toEqual(['CSV 只有表头，没有任务行']);
+  });
+
+  it('decodes UTF-8 bytes and falls back for legacy encodings', () => {
+    const utf8 = new TextEncoder().encode('\uFEFF任务标题\n导入任务').buffer;
+
+    expect(decodeCsvBytes(utf8)).toContain('任务标题');
   });
 
   it('rejects a file without a title column', () => {

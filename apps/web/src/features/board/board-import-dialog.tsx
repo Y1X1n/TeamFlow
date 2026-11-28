@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import { TASK_PRIORITY_LABELS } from '@teamflow/shared/enums';
 import { getErrorMessage } from '@/features/tasks/task-utils';
-import { boardImportTemplateCsv, buildBoardImportPlan } from './board-import';
+import { boardImportTemplateCsv, buildBoardImportPlan, decodeCsvBytes } from './board-import';
 import type { BoardImportRow } from './board-import';
 
 interface BoardImportDialogProps {
@@ -34,9 +34,16 @@ interface BoardImportDialogProps {
   onImported: () => void;
 }
 
+interface ImportFailure {
+  line: number;
+  title: string;
+  message: string;
+}
+
 interface ImportResult {
   success: number;
-  failed: number;
+  succeeded: number[];
+  failures: ImportFailure[];
 }
 
 export function BoardImportDialog({
@@ -52,6 +59,8 @@ export function BoardImportDialog({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [fileName, setFileName] = useState('');
   const [csvText, setCsvText] = useState('');
+  const [importedLines, setImportedLines] = useState<number[]>([]);
+  const [failures, setFailures] = useState<ImportFailure[]>([]);
 
   const plan = useMemo(
     () =>
@@ -64,7 +73,8 @@ export function BoardImportDialog({
   const importRows = useMutation<ImportResult, Error, BoardImportRow[]>({
     mutationFn: async (rows) => {
       let success = 0;
-      let failed = 0;
+      const succeeded: number[] = [];
+      const failures: ImportFailure[] = [];
       for (const row of rows) {
         try {
           await api<TaskDetail>(`/projects/${projectId}/tasks`, {
@@ -80,25 +90,29 @@ export function BoardImportDialog({
             },
           });
           success += 1;
-        } catch {
-          failed += 1;
+          succeeded.push(row.line);
+        } catch (error) {
+          failures.push({ line: row.line, title: row.title, message: getErrorMessage(error) });
         }
       }
-      return { success, failed };
+      return { success, succeeded, failures };
     },
     onSuccess: (result) => {
       if (result.success > 0) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
         onImported();
+        setImportedLines((previous) => Array.from(new Set([...previous, ...result.succeeded])));
       }
-      if (result.failed === 0) {
+      setFailures(result.failures);
+      if (result.failures.length === 0) {
         toast.success(`已导入 ${result.success} 个任务`);
         onOpenChange(false);
       } else if (result.success === 0) {
-        toast.error(`导入失败：${result.failed} 行未创建`);
+        toast.error(`导入失败：${result.failures.length} 行未创建，可重试`);
       } else {
-        toast.warning(`已导入 ${result.success} 个任务，${result.failed} 行失败`);
-        onOpenChange(false);
+        toast.warning(
+          `已导入 ${result.success} 个任务，${result.failures.length} 行失败，可重试失败行`,
+        );
       }
     },
     onError: (error) => toast.error(getErrorMessage(error)),
@@ -107,14 +121,18 @@ export function BoardImportDialog({
   const reset = () => {
     setFileName('');
     setCsvText('');
+    setImportedLines([]);
+    setFailures([]);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
     setFileName(file.name);
+    setImportedLines([]);
+    setFailures([]);
     try {
-      setCsvText(await file.text());
+      setCsvText(decodeCsvBytes(await file.arrayBuffer()));
     } catch {
       toast.error('读取文件失败');
     }
@@ -122,6 +140,9 @@ export function BoardImportDialog({
 
   const validCount = plan?.validRows.length ?? 0;
   const invalidCount = (plan?.rows.length ?? 0) - validCount;
+  const remainingRows = (plan?.validRows ?? []).filter(
+    (row) => !importedLines.includes(row.line),
+  );
 
   return (
     <Dialog
@@ -183,7 +204,27 @@ export function BoardImportDialog({
               <Badge variant="muted">共 {plan.rows.length} 行</Badge>
               <Badge variant="success">可导入 {validCount}</Badge>
               {invalidCount > 0 ? <Badge variant="warning">需修正 {invalidCount}</Badge> : null}
+              {importedLines.length > 0 ? (
+                <Badge variant="success">已导入 {importedLines.length}</Badge>
+              ) : null}
             </div>
+            {failures.length > 0 ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
+                <p className="font-medium">以下行未创建，可修正后重新导入：</p>
+                <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+                  {failures.slice(0, 5).map((failure) => (
+                    <li key={failure.line}>
+                      第 {failure.line} 行「{failure.title || '—'}」：{failure.message}
+                    </li>
+                  ))}
+                </ul>
+                {failures.length > 5 ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    另有 {failures.length - 5} 行失败
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <div className="overflow-x-auto rounded-lg border">
               <table className="w-full min-w-[820px] border-collapse text-sm">
                 <thead className="bg-muted/40 text-xs text-muted-foreground">
@@ -236,7 +277,9 @@ export function BoardImportDialog({
                         {row.estimateMinutes ? `${row.estimateMinutes / 60}h` : '—'}
                       </td>
                       <td className="px-2 py-1.5 text-xs">
-                        {row.errors.length > 0 ? (
+                        {importedLines.includes(row.line) ? (
+                          <span className="text-emerald-600">已导入</span>
+                        ) : row.errors.length > 0 ? (
                           <span className="text-destructive">{row.errors.join('；')}</span>
                         ) : (
                           <span className="text-emerald-600">可导入</span>
@@ -259,15 +302,17 @@ export function BoardImportDialog({
           </Button>
           <Button
             type="button"
-            onClick={() => plan && importRows.mutate(plan.validRows)}
-            disabled={validCount === 0 || importRows.isPending}
+            onClick={() => importRows.mutate(remainingRows)}
+            disabled={remainingRows.length === 0 || importRows.isPending}
           >
             {importRows.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             ) : (
               <Upload className="h-4 w-4" aria-hidden="true" />
             )}
-            导入 {validCount} 行
+            {failures.length > 0 && remainingRows.length > 0
+              ? `重试 ${remainingRows.length} 行`
+              : `导入 ${remainingRows.length} 行`}
           </Button>
         </DialogFooter>
       </DialogContent>

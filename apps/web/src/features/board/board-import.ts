@@ -1,4 +1,4 @@
-import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from '@teamflow/shared/enums';
+import { TASK_LABELS_MAX, TASK_LABEL_MAX_LENGTH, TASK_PRIORITIES, TASK_PRIORITY_LABELS } from '@teamflow/shared/enums';
 import type { TaskPriority } from '@teamflow/shared/enums';
 import type { BoardColumn, MemberSummary } from '@/lib/types';
 import { parseEstimateHours } from '@/features/tasks/task-utils';
@@ -71,6 +71,39 @@ function cell(row: string[], index: number): string {
 }
 
 /**
+ * 导出时为防公式注入会给危险开头的值加 `'` 前缀，回导时还原内容。
+ */
+function unescapeCsvGuard(value: string): string {
+  return value.startsWith("'") && /^[=+\-@\t\r]/.test(value.slice(1)) ? value.slice(1) : value;
+}
+
+/**
+ * 浏览器里读取 CSV：优先按 UTF-8 严格解码，失败则回退 GB18030（Excel 中文另存常见）。
+ */
+export function decodeCsvBytes(buffer: ArrayBuffer): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch {
+    try {
+      return new TextDecoder('gb18030').decode(buffer);
+    } catch {
+      return new TextDecoder('utf-8').decode(buffer);
+    }
+  }
+}
+
+function isValidCalendarDateTime(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+): boolean {
+  if (month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59) return false;
+  return day <= new Date(year, month, 0).getDate();
+}
+
+/**
  * 解析 CSV（兼容引号包裹、逗号、换行、双引号转义与 BOM）。
  */
 export function parseCsv(text: string): string[][] {
@@ -125,6 +158,14 @@ function parseImportDueDate(value: string): string | null | 'invalid' {
   const dateTime = /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})$/.exec(normalized);
   if (dateTime) {
     const [, year, month, day, hour, minute] = dateTime;
+    const [y, mo, d, h, mi] = [year, month, day, hour, minute].map(Number) as [
+      number,
+      number,
+      number,
+      number,
+      number,
+    ];
+    if (!isValidCalendarDateTime(y, mo, d, h, mi)) return 'invalid';
     const candidate = `${year}-${month!.padStart(2, '0')}-${day!.padStart(
       2,
       '0',
@@ -135,6 +176,8 @@ function parseImportDueDate(value: string): string | null | 'invalid' {
   const dateOnly = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(normalized);
   if (dateOnly) {
     const [, year, month, day] = dateOnly;
+    const [y, mo, d] = [year, month, day].map(Number) as [number, number, number];
+    if (!isValidCalendarDateTime(y, mo, d, 23, 59)) return 'invalid';
     const candidate = `${year}-${month!.padStart(2, '0')}-${day!.padStart(
       2,
       '0',
@@ -168,7 +211,7 @@ function parseImportLabels(value: string): string[] {
     new Set(
       value
         .split(/[、,，]/)
-        .map((label) => label.trim())
+        .map((label) => unescapeCsvGuard(label.trim()))
         .filter((label) => label.length > 0),
     ),
   );
@@ -196,6 +239,10 @@ export function buildBoardImportPlan(
     return { rows: [], validRows: [], globalErrors: ['缺少「任务标题」列'] };
   }
 
+  if (table.length === 1) {
+    return { rows: [], validRows: [], globalErrors: ['CSV 只有表头，没有任务行'] };
+  }
+
   const columnByName = new Map(columns.map((column) => [column.name, column]));
   const memberByName = new Map(members.map((member) => [member.name, member]));
   const rows: BoardImportRow[] = [];
@@ -203,11 +250,11 @@ export function buildBoardImportPlan(
   table.slice(1).forEach((cells, index) => {
     const line = index + 2;
     const errors: string[] = [];
-    const title = cell(cells, headerIndex.get('title') ?? -1);
+    const title = unescapeCsvGuard(cell(cells, headerIndex.get('title') ?? -1));
     if (!title) errors.push('任务标题不能为空');
     if (title.length > 200) errors.push('任务标题不能超过 200 字符');
 
-    const columnName = cell(cells, headerIndex.get('column') ?? -1);
+    const columnName = unescapeCsvGuard(cell(cells, headerIndex.get('column') ?? -1));
     let columnId = fallbackColumnId;
     if (columnName) {
       const column = columnByName.get(columnName);
@@ -216,7 +263,7 @@ export function buildBoardImportPlan(
     }
     if (!columnId) errors.push('找不到可用的看板列');
 
-    const assigneeName = cell(cells, headerIndex.get('assignee') ?? -1);
+    const assigneeName = unescapeCsvGuard(cell(cells, headerIndex.get('assignee') ?? -1));
     let assigneeId: string | null = null;
     if (assigneeName) {
       const member = memberByName.get(assigneeName);
@@ -234,7 +281,11 @@ export function buildBoardImportPlan(
     if (estimate === 'invalid') errors.push('预计工时需为 0.25–168 小时');
 
     const labels = parseImportLabels(cell(cells, headerIndex.get('labels') ?? -1));
-    if (labels.length > 5) errors.push('标签最多 5 个');
+    if (labels.length > TASK_LABELS_MAX) errors.push(`标签最多 ${TASK_LABELS_MAX} 个`);
+    const tooLongLabel = labels.find((label) => label.length > TASK_LABEL_MAX_LENGTH);
+    if (tooLongLabel) {
+      errors.push(`标签「${tooLongLabel}」超过 ${TASK_LABEL_MAX_LENGTH} 个字符`);
+    }
 
     rows.push({
       line,
