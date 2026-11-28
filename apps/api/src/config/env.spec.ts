@@ -33,4 +33,27 @@ describe('validateEnv', () => {
   it('parses TRUST_PROXY for deployments behind a reverse proxy', () => {
     expect(validateEnv({ ...baseEnv, TRUST_PROXY: '1' }).TRUST_PROXY).toBe(1);
   });
+
+  it('requires HTTPS for AI calls in production', () => {
+    expect(() =>
+      validateEnv({
+        ...baseEnv,
+        NODE_ENV: 'production',
+        AI_BASE_URL: 'http://ai.example.com/v1',
+      }),
+    ).toThrow(/AI_BASE_URL/);
+    expect(
+      validateEnv({
+        ...baseEnv,
+        NODE_ENV: 'production',
+        AI_BASE_URL: 'https://ai.example.com/v1',
+      }).AI_BASE_URL,
+    ).toBe('https://ai.example.com/v1');
+  });
+
+  it('rejects loopback AI calls in production', () => {
+    expect(() =>
+      validateEnv({ ...baseEnv, NODE_ENV: 'production', AI_ALLOW_LOOPBACK: 'true' }),
+    ).toThrow(/AI_ALLOW_LOOPBACK/);
+  });
 });

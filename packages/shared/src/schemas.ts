@@ -142,6 +142,11 @@ export const createInviteSchema = z
   .strict();
 export type CreateInviteInput = z.infer<typeof createInviteSchema>;
 
+export const inviteTokenSchema = z
+  .object({ token: z.string().trim().min(1).max(512) })
+  .strict();
+export type InviteTokenInput = z.infer<typeof inviteTokenSchema>;
+
 export const updateMemberSchema = z
   .object({
     role: z.enum(['ADMIN', 'MEMBER', 'VIEWER']).optional(),
@@ -316,7 +321,7 @@ export type PreviewReportEmailInput = z.infer<typeof previewReportEmailSchema>;
 
 export const sendReportEmailSchema = z
   .object({
-    recipients: reportRecipientsSchema,
+    previewToken: z.string().min(20).max(4096),
     subject: z
       .string()
       .trim()

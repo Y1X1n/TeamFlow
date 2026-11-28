@@ -10,6 +10,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { ATTACHMENT_MAX_BYTES } from '@teamflow/shared/enums';
 import type { Response } from 'express';
 import { CurrentUser } from '../../common/current-user.decorator';
@@ -28,6 +29,7 @@ export class AttachmentsController {
 
   @Post('tasks/:taskId/attachments')
   @HttpCode(201)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @RequirePermission('attachment:upload')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: ATTACHMENT_MAX_BYTES } }))
   upload(

@@ -191,6 +191,44 @@ describe('TeamFlow API (e2e)', () => {
     expect(deleteAttachment.status).toBe(404);
   });
 
+  it('consumes local file download links exactly once', async () => {
+    const board = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/board`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const todo = board.body.columns.find((column: { name: string }) => column.name === '待办');
+    const task = await ownerAgent
+      .post(`/api/v1/projects/${projectId}/tasks`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ title: 'E2E 一次性下载', columnId: todo.id });
+    expect(task.status).toBe(201);
+
+    const attachment = await ownerAgent
+      .post(`/api/v1/tasks/${task.body.id}/attachments`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .attach('file', Buffer.from('one time download'), {
+        filename: 'note.txt',
+        contentType: 'text/plain',
+      });
+    expect(attachment.status).toBe(201);
+
+    const redirect = await ownerAgent
+      .get(`/api/v1/attachments/${attachment.body.id}/download`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(redirect.status).toBe(302);
+    const location = new URL(redirect.headers.location as string, 'http://localhost');
+    const path = `${location.pathname}${location.search}`;
+
+    const first = await request(app.getHttpServer()).get(path);
+    expect(first.status).toBe(200);
+    expect(first.text).toBe('one time download');
+    const second = await request(app.getHttpServer()).get(path);
+    expect(second.status).toBe(404);
+
+    await ownerAgent
+      .delete(`/api/v1/tasks/${task.body.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+  });
+
   it('lists deleted tasks in trash and restores them with dependencies', async () => {
     const board = await ownerAgent
       .get(`/api/v1/projects/${projectId}/board`)
@@ -459,16 +497,18 @@ describe('TeamFlow API (e2e)', () => {
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ email: viewerEmail, role: 'VIEWER' });
     expect(invite.status).toBe(201);
-    const token = invite.body.inviteUrl.split('/invite/')[1] as string;
+    const token = invite.body.inviteUrl.split('#')[1] as string;
 
     const preview = await viewerAgent
-      .get(`/api/v1/invites/${token}`)
-      .set('Authorization', `Bearer ${viewerToken}`);
+      .post('/api/v1/invites/preview')
+      .set('Authorization', `Bearer ${viewerToken}`)
+      .send({ token });
     expect(preview.status).toBe(200);
 
     const accept = await viewerAgent
-      .post(`/api/v1/invites/${token}/accept`)
-      .set('Authorization', `Bearer ${viewerToken}`);
+      .post('/api/v1/invites/accept')
+      .set('Authorization', `Bearer ${viewerToken}`)
+      .send({ token });
     expect(accept.status).toBe(200);
     expect(accept.body.myRole).toBe('VIEWER');
 
@@ -838,7 +878,7 @@ describe('TeamFlow API (e2e)', () => {
       .post(`/api/v1/projects/${projectId}/reports/current/email/send`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({
-        recipients: [ownerEmail],
+        previewToken: preview.body.previewToken,
         subject: preview.body.subject,
         body: preview.body.body,
         confirm: false,
@@ -849,7 +889,7 @@ describe('TeamFlow API (e2e)', () => {
       .post(`/api/v1/projects/${projectId}/reports/current/email/send`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({
-        recipients: [ownerEmail],
+        previewToken: preview.body.previewToken,
         subject: preview.body.subject,
         body: preview.body.body,
         confirm: true,
@@ -858,6 +898,25 @@ describe('TeamFlow API (e2e)', () => {
     expect(send.body.sent).toBe(true);
     expect(send.body.messageId).toBe('msg_e2e');
     expect(send.body.sender).toBe('bot@example.com');
+
+    const reused = await ownerAgent
+      .post(`/api/v1/projects/${projectId}/reports/current/email/send`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        previewToken: preview.body.previewToken,
+        subject: preview.body.subject,
+        body: preview.body.body,
+        confirm: true,
+      });
+    expect(reused.status).toBe(409);
+    expect(reused.body.code).toBe('EMAIL_PREVIEW_USED');
+
+    const nonMemberPreview = await ownerAgent
+      .post(`/api/v1/projects/${projectId}/reports/current/email/preview`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ recipients: ['outsider@example.com'] });
+    expect(nonMemberPreview.status).toBe(422);
+    expect(nonMemberPreview.body.code).toBe('RECIPIENTS_NOT_MEMBERS');
 
     const captured = JSON.parse(await readFile(mailCapturePath, 'utf8')) as {
       args: string[];

@@ -6,12 +6,11 @@ import {
   CheckCircle2,
   Loader2,
   Mail,
-  Plus,
   Send,
   Sparkles,
   Users,
 } from 'lucide-react';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { PROJECT_ROLE_LABELS } from '@teamflow/shared/enums';
 import { api } from '@/lib/api';
@@ -48,7 +47,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { getErrorMessage } from '@/features/tasks/task-utils';
 
 const MAX_RECIPIENTS = 20;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function ReportEmailDialog({
   open,
@@ -63,7 +61,6 @@ export function ReportEmailDialog({
 }) {
   const [selected, setSelected] = useState<string[]>([]);
   const [initialized, setInitialized] = useState(false);
-  const [customEmail, setCustomEmail] = useState('');
   const [note, setNote] = useState('');
   const [tone, setTone] = useState<'concise' | 'detailed'>('concise');
   const [preview, setPreview] = useState<ReportEmailPreview | null>(null);
@@ -91,7 +88,6 @@ export function ReportEmailDialog({
     if (open) return;
     setInitialized(false);
     setSelected([]);
-    setCustomEmail('');
     setNote('');
     setTone('concise');
     setPreview(null);
@@ -123,25 +119,6 @@ export function ReportEmailDialog({
     );
   };
 
-  const addCustomEmail = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const email = customEmail.trim().toLowerCase();
-    if (!EMAIL_PATTERN.test(email)) {
-      toast.error('请输入有效的邮箱地址');
-      return;
-    }
-    if (selected.includes(email)) {
-      toast.error('该邮箱已在收件人列表中');
-      return;
-    }
-    if (selected.length >= MAX_RECIPIENTS) {
-      toast.error(`最多 ${MAX_RECIPIENTS} 个收件人`);
-      return;
-    }
-    invalidatePreview();
-    setSelected((current) => [...current, email]);
-    setCustomEmail('');
-  };
 
   const previewMutation = useMutation<ReportEmailPreview, Error, void>({
     mutationFn: () =>
@@ -167,7 +144,7 @@ export function ReportEmailDialog({
       return api<ReportEmailSendResult>(`/projects/${projectId}/reports/current/email/send`, {
         method: 'POST',
         body: {
-          recipients: preview.recipients,
+          previewToken: preview.previewToken,
           subject: subject.trim(),
           body: body.trim(),
           confirm: true,
@@ -306,47 +283,6 @@ export function ReportEmailDialog({
                 })}
               </div>
             )}
-
-            <form onSubmit={addCustomEmail} noValidate className="mt-2 flex items-center gap-2">
-              <Label htmlFor="report-email-custom" className="sr-only">
-                外部收件邮箱
-              </Label>
-              <Input
-                id="report-email-custom"
-                type="email"
-                value={customEmail}
-                onChange={(event) => setCustomEmail(event.target.value)}
-                placeholder="添加外部邮箱，回车确认"
-                className="h-8"
-              />
-              <Button type="submit" variant="outline" size="sm" disabled={!customEmail.trim()}>
-                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                添加
-              </Button>
-            </form>
-
-            {selected.some((email) => !memberEmails.includes(email)) ? (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {selected
-                  .filter((email) => !memberEmails.includes(email))
-                  .map((email) => (
-                    <span
-                      key={email}
-                      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
-                    >
-                      {email}
-                      <button
-                        type="button"
-                        aria-label={`移除外部收件人 ${email}`}
-                        className="rounded-full p-0.5 text-muted-foreground hover:bg-muted"
-                        onClick={() => toggleRecipient(email, false)}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-              </div>
-            ) : null}
           </section>
 
           <section className="grid gap-3 sm:grid-cols-[1fr_160px]">

@@ -110,7 +110,7 @@ describe('Period reports (e2e)', () => {
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ email: memberEmail, role: 'MEMBER' });
     expect(invite.status).toBe(201);
-    const inviteToken = (invite.body.inviteUrl as string).split('/invite/')[1];
+    const inviteToken = (invite.body.inviteUrl as string).split('#')[1];
     const accept = await request(app.getHttpServer())
       .post(`/api/v1/invites/${inviteToken}/accept`)
       .set('Authorization', `Bearer ${memberToken}`);

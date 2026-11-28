@@ -150,14 +150,15 @@ export function InviteAcceptCard({ token }: { token: string }) {
 
   const previewQuery = useQuery({
     queryKey: queryKeys.invitePreview(token),
-    queryFn: () => api<InvitePreview>(`/invites/${encodeURIComponent(token)}`),
+    queryFn: () =>
+      api<InvitePreview>('/invites/preview', { method: 'POST', body: { token } }),
     enabled: token.length > 0,
     retry: false,
   });
 
   const acceptMutation = useMutation({
     mutationFn: () =>
-      api<Project>(`/invites/${encodeURIComponent(token)}/accept`, { method: 'POST' }),
+      api<Project>('/invites/accept', { method: 'POST', body: { token } }),
     onSuccess: (project) => {
       toast.success(`已加入「${project.name}」`);
       void queryClient.invalidateQueries({ queryKey: ['projects'] });

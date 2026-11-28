@@ -18,11 +18,11 @@ export class HealthController {
   @Get()
   async health(): Promise<{
     status: 'ok' | 'degraded';
-    uptime: number;
-    db: 'up' | 'down';
-    redis: 'up' | 'down';
-    realtime: 'up' | 'down';
-    version: string;
+    uptime?: number;
+    db?: 'up' | 'down';
+    redis?: 'up' | 'down';
+    realtime?: 'up' | 'down';
+    version?: string;
   }> {
     let db: 'up' | 'down' = 'up';
     try {
@@ -32,8 +32,13 @@ export class HealthController {
     }
     const redis = (await this.redis.ping()) ? 'up' : 'down';
     const realtime = this.realtime.isReady ? 'up' : 'down';
+    const status = db === 'up' && redis === 'up' && realtime === 'up' ? 'ok' : 'degraded';
+    const detailed =
+      this.config.get<string>('NODE_ENV') !== 'production' ||
+      this.config.get<boolean>('HEALTH_DETAILS') === true;
+    if (!detailed) return { status };
     return {
-      status: db === 'up' && redis === 'up' && realtime === 'up' ? 'ok' : 'degraded',
+      status,
       uptime: process.uptime(),
       db,
       redis,

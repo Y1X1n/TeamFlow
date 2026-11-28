@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { resolvePermissions } from '@teamflow/shared/permissions';
 import type { ProjectRole, TaskPriority } from '@teamflow/shared/enums';
 import type { Prisma } from '@prisma/client';
@@ -15,6 +17,7 @@ import { AiService } from '../ai/ai.service';
 import { AgentMailService } from '../mail/agent-mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AccessService } from '../permissions/access.service';
+import { RedisService } from '../../redis/redis.service';
 import {
   formatDate,
   parseWeekStart,
@@ -32,6 +35,15 @@ const PRIORITY_RANK: Record<TaskPriority, number> = {
   MEDIUM: 2,
   LOW: 3,
 };
+const EMAIL_PREVIEW_TTL_SECONDS = 600;
+
+interface EmailPreviewPayload {
+  p: string;
+  u: string;
+  r: string[];
+  e: number;
+  j: string;
+}
 
 type WeekTaskRecord = Prisma.TaskGetPayload<{
   select: {
@@ -339,6 +351,8 @@ export class ReportsService {
     private readonly notifications: NotificationsService,
     private readonly ai: AiService,
     private readonly agentMail: AgentMailService,
+    private readonly config: ConfigService,
+    private readonly redis: RedisService,
   ) {}
 
   private serialize(report: {
@@ -852,7 +866,63 @@ export class ReportsService {
     return this.agentMail.status();
   }
 
-  async previewEmail(projectId: string, input: PreviewReportEmailInput) {
+  private signEmailPreview(payload: EmailPreviewPayload): string {
+    const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signature = createHmac('sha256', this.config.getOrThrow<string>('JWT_SECRET'))
+      .update(payloadB64)
+      .digest('base64url');
+    return `${payloadB64}.${signature}`;
+  }
+
+  private parseEmailPreview(token: string): EmailPreviewPayload {
+    const [payloadB64, signature] = token.split('.');
+    if (!payloadB64 || !signature) {
+      throw new DomainError('EMAIL_PREVIEW_INVALID', 422, '邮件预览凭证无效，请重新生成');
+    }
+    const expected = createHmac('sha256', this.config.getOrThrow<string>('JWT_SECRET'))
+      .update(payloadB64)
+      .digest('base64url');
+    const provided = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expected);
+    if (
+      provided.length !== expectedBuffer.length ||
+      !timingSafeEqual(provided, expectedBuffer)
+    ) {
+      throw new DomainError('EMAIL_PREVIEW_INVALID', 422, '邮件预览凭证无效，请重新生成');
+    }
+    let payload: EmailPreviewPayload;
+    try {
+      payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as EmailPreviewPayload;
+    } catch {
+      throw new DomainError('EMAIL_PREVIEW_INVALID', 422, '邮件预览凭证无效，请重新生成');
+    }
+    if (!payload.p || !payload.u || !Array.isArray(payload.r) || !payload.e || !payload.j) {
+      throw new DomainError('EMAIL_PREVIEW_INVALID', 422, '邮件预览凭证无效，请重新生成');
+    }
+    if (payload.e * 1000 < Date.now()) {
+      throw new DomainError('EMAIL_PREVIEW_EXPIRED', 409, '邮件预览已过期，请重新生成');
+    }
+    return payload;
+  }
+
+  private async assertRecipientsAreMembers(projectId: string, recipients: string[]): Promise<void> {
+    const members = await this.prisma.projectMember.findMany({
+      where: { projectId },
+      select: { user: { select: { email: true } } },
+    });
+    const allowed = new Set(members.map((member) => member.user.email.toLowerCase()));
+    const invalid = recipients.filter((email) => !allowed.has(email.toLowerCase()));
+    if (invalid.length > 0) {
+      throw new DomainError(
+        'RECIPIENTS_NOT_MEMBERS',
+        422,
+        `收件人必须是项目成员：${invalid.join(', ')}`,
+      );
+    }
+  }
+
+  async previewEmail(projectId: string, userId: string, input: PreviewReportEmailInput) {
+    await this.assertRecipientsAreMembers(projectId, input.recipients);
     const summary = await this.current(projectId);
     if (summary.project.archived) {
       throw new DomainError('PROJECT_ARCHIVED', 409, 'Project is archived');
@@ -879,6 +949,13 @@ export class ReportsService {
         tone: input.tone,
       }),
     ]);
+    const previewToken = this.signEmailPreview({
+      p: projectId,
+      u: userId,
+      r: input.recipients,
+      e: Math.floor(Date.now() / 1000) + EMAIL_PREVIEW_TTL_SECONDS,
+      j: randomUUID(),
+    });
     return {
       weekStart: summary.weekStart,
       weekEnd: summary.weekEnd,
@@ -891,6 +968,7 @@ export class ReportsService {
       sender: mail.sender,
       emailAvailable: mail.available,
       emailReason: mail.reason ?? null,
+      previewToken,
     };
   }
 
@@ -902,8 +980,29 @@ export class ReportsService {
     if (!project) throw new DomainError('NOT_FOUND', 404, 'Project not found');
     if (project.archivedAt) throw new DomainError('PROJECT_ARCHIVED', 409, 'Project is archived');
 
+    const preview = this.parseEmailPreview(input.previewToken);
+    if (preview.p !== projectId || preview.u !== userId) {
+      throw new DomainError('EMAIL_PREVIEW_INVALID', 422, '邮件预览凭证与当前项目不匹配');
+    }
+    await this.assertRecipientsAreMembers(projectId, preview.r);
+    let consumed: string | null;
+    try {
+      consumed = await this.redis.client.set(
+        `report-email-preview:${preview.j}`,
+        '1',
+        'EX',
+        Math.max(1, preview.e - Math.floor(Date.now() / 1000)),
+        'NX',
+      );
+    } catch {
+      throw new DomainError('QUEUE_UNAVAILABLE', 503, '邮件预览状态暂不可用，请稍后重试');
+    }
+    if (!consumed) {
+      throw new DomainError('EMAIL_PREVIEW_USED', 409, '邮件预览已使用或过期，请重新生成');
+    }
+
     const result = await this.agentMail.send({
-      recipients: input.recipients,
+      recipients: preview.r,
       subject: input.subject,
       body: input.body,
     });
@@ -916,7 +1015,7 @@ export class ReportsService {
           payload: {
             projectId,
             subject: input.subject,
-            recipientCount: input.recipients.length,
+            recipientCount: preview.r.length,
             sender: result.sender,
           },
         });

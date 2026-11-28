@@ -433,8 +433,8 @@ TaskCard 新增 `subtaskTotal/subtaskDone`；TaskDetail 新增 `subtasks/watchin
 | 方法 | 路径                                                  | 权限              | 说明                                                  |
 | ---- | ----------------------------------------------------- | ----------------- | ----------------------------------------------------- |
 | GET  | `/projects/{projectId}/reports/current/email/status`  | `report:generate` | 返回 `enabled/available/provider/sender/reason`       |
-| POST | `/projects/{projectId}/reports/current/email/preview` | `report:generate` | 生成邮件主题/正文预览，不发送；AI 失败回退本地模板    |
-| POST | `/projects/{projectId}/reports/current/email/send`    | `report:generate` | 用户确认后发送；`confirm` 必须为 `true`，记录活动审计 |
+| POST | `/projects/{projectId}/reports/current/email/preview` | `report:generate` | 生成邮件预览与一次性 `previewToken`；收件人必须是项目成员；AI 失败回退本地模板 |
+| POST | `/projects/{projectId}/reports/current/email/send`    | `report:generate` | 使用 previewToken 发送（10 分钟、一次性）；`confirm` 必须为 `true`，记录活动审计 |
 
 - 发送通过本机已授权的 `agently-cli`；服务端不保存邮箱密码/OAuth Token。
 - 预览请求：`{recipients[], tone?, note?}`；发送请求：`{recipients[], subject, body, confirm:true}`。
@@ -622,3 +622,4 @@ TaskCard 新增 `subtaskTotal/subtaskDone`；TaskDetail 新增 `subtasks/watchin
 | ----- | ---------- | ----------------------------------------------------------- |
 | 1.7.0 | 2026-11-25 | AI 拆解预览/编辑与任务分工建议（新增 1 个端点，共 77 操作） |
 | 1.8.0–1.22.0 | 2026-11-26–28 | 看板分组/日历/批量/工时/重复任务/移动端/CSV 导入导出/安全加固/数据一致性（共 80 操作，含本地文件下载） |
+| 1.24.0 | 2026-11-28 | 安全 P3 加固：邮件预览一次性 token、邀请 token 移入 URL 片段/请求体、运维端点收敛（共 82 操作） |

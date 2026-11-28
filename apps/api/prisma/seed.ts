@@ -10,6 +10,11 @@ const prisma = new PrismaClient();
 const day = 24 * 60 * 60 * 1000;
 
 async function main(): Promise<void> {
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEMO_SEED !== 'true') {
+    throw new Error(
+      'Refusing to seed demo accounts with a known password in production. Set ALLOW_DEMO_SEED=true only for disposable environments.',
+    );
+  }
   const passwordHash = await hashPassword('Passw0rd!');
   const alice = await prisma.user.upsert({
     where: { email: 'alice@example.com' },

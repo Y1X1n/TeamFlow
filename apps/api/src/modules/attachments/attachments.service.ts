@@ -17,7 +17,10 @@ export interface UploadedFileLike {
 
 const ALLOWED: Record<
   string,
-  { mime: string; kind: 'png' | 'jpeg' | 'gif' | 'webp' | 'pdf' | 'zip' | 'text' }
+  {
+    mime: string;
+    kind: 'png' | 'jpeg' | 'gif' | 'webp' | 'pdf' | 'docx' | 'xlsx' | 'pptx' | 'text';
+  }
 > = {
   '.png': { mime: 'image/png', kind: 'png' },
   '.jpg': { mime: 'image/jpeg', kind: 'jpeg' },
@@ -29,15 +32,15 @@ const ALLOWED: Record<
   '.md': { mime: 'text/markdown', kind: 'text' },
   '.docx': {
     mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    kind: 'zip',
+    kind: 'docx',
   },
   '.xlsx': {
     mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    kind: 'zip',
+    kind: 'xlsx',
   },
   '.pptx': {
     mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    kind: 'zip',
+    kind: 'pptx',
   },
 };
 
@@ -46,7 +49,25 @@ function startsWith(buffer: Buffer, bytes: number[]): boolean {
   return bytes.every((byte, index) => buffer[index] === byte);
 }
 
-function detect(buffer: Buffer, kind: (typeof ALLOWED)[string]['kind']): boolean {
+function isZip(buffer: Buffer): boolean {
+  return (
+    startsWith(buffer, [0x50, 0x4b, 0x03, 0x04]) || startsWith(buffer, [0x50, 0x4b, 0x05, 0x06])
+  );
+}
+
+/** Office Open XML 必须同时包含内容类型表和对应主文档目录，拒绝普通 ZIP 改扩展名。 */
+function isOfficeDocument(buffer: Buffer, marker: string): boolean {
+  return (
+    isZip(buffer) &&
+    buffer.includes(Buffer.from('[Content_Types].xml')) &&
+    buffer.includes(Buffer.from(marker))
+  );
+}
+
+export function detectAttachmentSignature(
+  buffer: Buffer,
+  kind: (typeof ALLOWED)[string]['kind'],
+): boolean {
   switch (kind) {
     case 'png':
       return startsWith(buffer, [0x89, 0x50, 0x4e, 0x47]);
@@ -61,10 +82,12 @@ function detect(buffer: Buffer, kind: (typeof ALLOWED)[string]['kind']): boolean
       );
     case 'pdf':
       return startsWith(buffer, [0x25, 0x50, 0x44, 0x46]);
-    case 'zip':
-      return (
-        startsWith(buffer, [0x50, 0x4b, 0x03, 0x04]) || startsWith(buffer, [0x50, 0x4b, 0x05, 0x06])
-      );
+    case 'docx':
+      return isOfficeDocument(buffer, 'word/');
+    case 'xlsx':
+      return isOfficeDocument(buffer, 'xl/');
+    case 'pptx':
+      return isOfficeDocument(buffer, 'ppt/');
     case 'text':
       return !buffer.includes(0x00);
   }
@@ -94,7 +117,7 @@ export class AttachmentsService {
     }
     const extension = path.extname(fileName).toLowerCase();
     const info = ALLOWED[extension];
-    if (!info || !detect(buffer, info.kind)) {
+    if (!info || !detectAttachmentSignature(buffer, info.kind)) {
       throw new DomainError('UNSUPPORTED_FILE_TYPE', 415, 'Unsupported file type');
     }
     return { extension, mime: info.mime };
