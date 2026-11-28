@@ -60,6 +60,9 @@ export type PermissionOverrides = Partial<Record<Permission, boolean>>;
 
 export const PERMISSION_KEYS: readonly Permission[] = PERMISSIONS.map((item) => item.key);
 
+/** 无论权限覆盖如何配置，都只属于项目负责人的权限。 */
+export const OWNER_ONLY_PERMISSIONS: readonly Permission[] = ['project:delete'];
+
 const ALL: readonly Permission[] = PERMISSION_KEYS;
 
 export const ROLE_PRESETS: Record<ProjectRole, readonly Permission[]> = {
@@ -95,6 +98,7 @@ export function resolvePermissions(
   if (overrides) {
     for (const [key, value] of Object.entries(overrides)) {
       if (!isPermissionKey(key) || typeof value !== 'boolean') continue;
+      if (value && OWNER_ONLY_PERMISSIONS.includes(key)) continue;
       if (value) effective.add(key);
       else effective.delete(key);
     }

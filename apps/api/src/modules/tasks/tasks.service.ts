@@ -122,6 +122,20 @@ export class TasksService {
     return membership?.role ?? 'MEMBER';
   }
 
+  /** 历史 watcher 可能属于已移除成员，发送通知/复制关注者前按当前成员过滤。 */
+  private async currentMemberIds(
+    projectId: string,
+    userIds: Iterable<string>,
+  ): Promise<Set<string>> {
+    const ids = [...new Set(userIds)];
+    if (ids.length === 0) return new Set();
+    const rows = await this.prisma.projectMember.findMany({
+      where: { projectId, userId: { in: ids } },
+      select: { userId: true },
+    });
+    return new Set(rows.map((row) => row.userId));
+  }
+
   private async taskInclude(taskId: string): Promise<TaskWithRelations> {
     const task = await this.prisma.task.findFirst({
       where: { id: taskId, deletedAt: null },
@@ -566,10 +580,16 @@ export class TasksService {
     }
     if (Object.keys(changes).length > 0) {
       const minuteBucket = Math.floor(Date.now() / 60_000);
+      const memberIds = await this.currentMemberIds(
+        task.projectId,
+        task.watchers.map((watcher) => watcher.userId),
+      );
       const watcherEntries = task.watchers
         .filter(
           (watcher) =>
-            watcher.userId !== userId && !(assigneeChanging && watcher.userId === nextAssign),
+            memberIds.has(watcher.userId) &&
+            watcher.userId !== userId &&
+            !(assigneeChanging && watcher.userId === nextAssign),
         )
         .map((watcher) => ({
           userId: watcher.userId,
@@ -695,6 +715,11 @@ export class TasksService {
       : null;
     // 成员被移除后 assigneeId 仍留在任务上，生成下一实例时不再沿用。
     const assigneeId = assigneeRole ? task.assigneeId : null;
+    const watcherCandidates = new Set(task.watchers.map((watcher) => watcher.userId));
+    watcherCandidates.add(task.createdById);
+    if (assigneeId) watcherCandidates.add(assigneeId);
+    const memberIds = await this.currentMemberIds(task.projectId, watcherCandidates);
+    const watcherIds = [...watcherCandidates].filter((watcherId) => memberIds.has(watcherId));
 
     const created = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.task.updateMany({
@@ -745,12 +770,9 @@ export class TasksService {
           })),
         });
       }
-      // 沿用原任务的关注者（含手动关注），并确保创建者与负责人被关注。
-      const watcherIds = new Set(task.watchers.map((watcher) => watcher.userId));
-      watcherIds.add(task.createdById);
-      if (assigneeId) watcherIds.add(assigneeId);
+      // 沿用原任务的关注者（含手动关注），并确保创建者与负责人被关注；已移除成员不再复制。
       await tx.taskWatcher.createMany({
-        data: [...watcherIds].map((watcherId) => ({ taskId: next.id, userId: watcherId })),
+        data: watcherIds.map((watcherId) => ({ taskId: next.id, userId: watcherId })),
         skipDuplicates: true,
       });
       await this.activities.record(tx, {

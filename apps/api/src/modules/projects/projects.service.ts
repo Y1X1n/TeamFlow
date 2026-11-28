@@ -202,8 +202,8 @@ export class ProjectsService {
 
   async remove(userId: string, projectId: string): Promise<void> {
     const access = await this.access.getContext(userId, projectId);
-    if (!access.permissions.includes('project:delete')) {
-      throw new DomainError('FORBIDDEN', 403, 'Missing permission project:delete');
+    if (access.role !== 'OWNER' || !access.permissions.includes('project:delete')) {
+      throw new DomainError('FORBIDDEN', 403, 'Only the project owner can delete the project');
     }
     const attachments = await this.prisma.attachment.findMany({
       where: { task: { projectId } },

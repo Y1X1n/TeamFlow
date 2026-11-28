@@ -116,9 +116,17 @@ k6 run tests/k6/board.js                     # 看板读接口压测（需 k6）
 
 ```bash
 cp .env.example .env
+# 编辑 .env：把 JWT_SECRET 换成唯一随机值，例如 `openssl rand -hex 32` 的输出
 docker compose up --build -d
 # 打开 http://localhost
 ```
+
+生产部署要点：
+
+- `JWT_SECRET` 必须显式提供且不能使用仓库示例值，生产环境启动时会拒绝公开的默认值。
+- 经 Nginx 反向代理时设置 `TRUST_PROXY=1`（compose 已默认），否则限流会把所有用户算成同一个 IP。
+- compose 默认 `COOKIE_SECURE=true`，正式环境请通过 HTTPS 访问；本地 `http://localhost` 调试可临时设为 `false`。
+- Postgres/Redis/MinIO 端口默认只绑定 `127.0.0.1`，不要直接暴露到公网。
 
 监控（可选）：`docker compose --profile monitoring up -d`，Prometheus http://localhost:9090，Grafana http://localhost:3001（admin/admin）。
 

@@ -478,6 +478,107 @@ describe('TeamFlow API (e2e)', () => {
     expect(denied.status).toBe(403);
   });
 
+  it('prevents permission overrides from granting owner-only powers', async () => {
+    const members = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const viewer = members.body.items.find(
+      (member: { email: string }) => member.email === viewerEmail,
+    ) as { userId: string; role: string };
+    expect(viewer.role).toBe('VIEWER');
+
+    const promoted = await ownerAgent
+      .patch(`/api/v1/projects/${projectId}/members/${viewer.userId}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ role: 'ADMIN' });
+    expect(promoted.status).toBe(200);
+    expect(promoted.body.role).toBe('ADMIN');
+
+    const adminDelete = await viewerAgent
+      .delete(`/api/v1/projects/${projectId}`)
+      .set('Authorization', `Bearer ${viewerToken}`);
+    expect(adminDelete.status).toBe(403);
+
+    const grantOwnerOnly = await ownerAgent
+      .patch(`/api/v1/projects/${projectId}/members/${viewer.userId}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ permissionOverrides: { 'project:delete': true } });
+    expect(grantOwnerOnly.status).toBe(403);
+
+    const adminSelfEscalation = await viewerAgent
+      .patch(`/api/v1/projects/${projectId}/members/${viewer.userId}`)
+      .set('Authorization', `Bearer ${viewerToken}`)
+      .send({ permissionOverrides: { 'project:delete': true } });
+    expect(adminSelfEscalation.status).toBe(409);
+    expect(adminSelfEscalation.body.code).toBe('ADMIN_CANNOT_MANAGE_ADMIN');
+  });
+
+  it('cleans up assignment, watch and my-tasks access when a member is removed', async () => {
+    const members = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const viewer = members.body.items.find(
+      (member: { email: string }) => member.email === viewerEmail,
+    ) as { userId: string };
+    const board = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/board`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const todo = board.body.columns.find((column: { name: string }) => column.name === '待办');
+
+    const task = await ownerAgent
+      .post(`/api/v1/projects/${projectId}/tasks`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ title: 'E2E 移除成员清理', columnId: todo.id, assigneeId: viewer.userId });
+    expect(task.status).toBe(201);
+    expect(task.body.assignee?.userId).toBe(viewer.userId);
+
+    const watched = await viewerAgent
+      .post(`/api/v1/tasks/${task.body.id}/watch`)
+      .set('Authorization', `Bearer ${viewerToken}`);
+    expect(watched.status).toBe(200);
+
+    const removed = await ownerAgent
+      .delete(`/api/v1/projects/${projectId}/members/${viewer.userId}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(removed.status).toBe(204);
+
+    const detail = await ownerAgent
+      .get(`/api/v1/tasks/${task.body.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.assignee).toBeNull();
+
+    const updated = await ownerAgent
+      .patch(`/api/v1/tasks/${task.body.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ title: 'E2E 移除成员清理（更新）' });
+    expect(updated.status).toBe(200);
+
+    const notifications = await viewerAgent
+      .get('/api/v1/notifications')
+      .set('Authorization', `Bearer ${viewerToken}`);
+    expect(notifications.status).toBe(200);
+    expect(
+      notifications.body.items.some(
+        (item: { type: string; payload: { taskId?: string } }) =>
+          item.type === 'TASK_UPDATED' && item.payload.taskId === task.body.id,
+      ),
+    ).toBe(false);
+
+    const myTasks = await viewerAgent
+      .get('/api/v1/users/me/tasks')
+      .set('Authorization', `Bearer ${viewerToken}`);
+    expect(myTasks.status).toBe(200);
+    expect(
+      myTasks.body.items.some((item: { id: string }) => item.id === task.body.id),
+    ).toBe(false);
+
+    const cleanup = await ownerAgent
+      .delete(`/api/v1/tasks/${task.body.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(cleanup.status).toBe(204);
+  });
+
   it('creates a project from a template', async () => {
     const created = await ownerAgent
       .post('/api/v1/projects')

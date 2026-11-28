@@ -9,6 +9,12 @@ const boolFromString = (defaultValue: boolean) =>
     return value;
   }, z.boolean());
 
+/** 仓库中公开出现过的占位 secret，生产环境必须显式替换。 */
+export const KNOWN_DEV_JWT_SECRETS: readonly string[] = [
+  'dev-only-change-me-please-32-bytes-minimum',
+  'change-me-32-bytes-minimum',
+];
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
@@ -59,7 +65,18 @@ export const envSchema = z.object({
   WORKER_ONLY: boolFromString(false),
   ENABLE_REALTIME: boolFromString(true),
   ENABLE_JOBS: boolFromString(true),
-});
+  TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
+})
+  .superRefine((value, ctx) => {
+    if (value.NODE_ENV === 'production' && KNOWN_DEV_JWT_SECRETS.includes(value.JWT_SECRET)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['JWT_SECRET'],
+        message:
+          'must be replaced with a unique random value in production (repo defaults are public)',
+      });
+    }
+  });
 
 export type Env = z.infer<typeof envSchema>;
 

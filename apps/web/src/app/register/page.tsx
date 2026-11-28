@@ -5,8 +5,8 @@ import { registerSchema } from '@teamflow/shared/schemas';
 import type { RegisterInput } from '@teamflow/shared/schemas';
 import { ArrowRight, Eye, EyeOff, LayoutDashboard, Loader2, ShieldCheck, Zap } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { safeNextPath } from '@/lib/utils';
 
 const FEATURES = [
   {
@@ -103,9 +104,11 @@ function BrandPanel() {
   );
 }
 
-export default function RegisterPage() {
+function RegisterPageContent() {
   const { register, status } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = safeNextPath(searchParams.get('next'));
   const [showPassword, setShowPassword] = useState(false);
   const form = useForm<RegisterInput>({
     resolver: zodResolver(registerSchema),
@@ -116,14 +119,14 @@ export default function RegisterPage() {
   const errors = form.formState.errors;
 
   useEffect(() => {
-    if (status === 'authenticated') router.replace('/');
-  }, [status, router]);
+    if (status === 'authenticated') router.replace(next);
+  }, [status, router, next]);
 
   async function onSubmit(values: RegisterInput) {
     try {
       await register(values.name, values.email, values.password);
       toast.success('注册成功，欢迎加入 TeamFlow');
-      router.replace('/');
+      router.replace(next);
     } catch (error) {
       toast.error(authErrorMessage(error));
     }
@@ -245,7 +248,7 @@ export default function RegisterPage() {
           <p className="mt-6 text-center text-sm text-muted-foreground">
             已有账号？
             <Link
-              href="/login"
+              href={next === '/' ? '/login' : `/login?next=${encodeURIComponent(next)}`}
               className="rounded font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               直接登录
@@ -254,5 +257,13 @@ export default function RegisterPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={null}>
+      <RegisterPageContent />
+    </Suspense>
   );
 }

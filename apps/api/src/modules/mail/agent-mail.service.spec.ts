@@ -25,7 +25,7 @@ if (args.includes('+me')) {
 if (args.includes('+send')) {
   const bodyFile = args[args.indexOf('--body-file') + 1];
   const body = fs.readFileSync(path.join(process.cwd(), bodyFile), 'utf8');
-  fs.writeFileSync(process.env.AGENT_MAIL_CAPTURE, JSON.stringify({ args, body }));
+  fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({ args, body }));
   console.log(JSON.stringify({ ok: true, data: { message_id: 'msg_test' } }));
   process.exit(0);
 }
@@ -33,7 +33,6 @@ process.exit(2);
 `,
       'utf8',
     );
-    process.env.AGENT_MAIL_CAPTURE = capturePath;
     const config = {
       get: (key: string) => {
         if (key === 'AGENT_MAIL_ENABLED') return true;
@@ -45,7 +44,6 @@ process.exit(2);
   });
 
   afterAll(async () => {
-    delete process.env.AGENT_MAIL_CAPTURE;
     await rm(directory, { recursive: true, force: true });
   });
 

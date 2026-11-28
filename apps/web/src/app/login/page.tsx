@@ -14,8 +14,8 @@ import {
   Zap,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { safeNextPath } from '@/lib/utils';
 
 const DEMO_ACCOUNTS = (process.env.NEXT_PUBLIC_DEMO_ACCOUNTS ?? '')
   .split(',')
@@ -121,9 +122,11 @@ function BrandPanel() {
   );
 }
 
-export default function LoginPage() {
+function LoginPageContent() {
   const { login, status } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = safeNextPath(searchParams.get('next'));
   const [showPassword, setShowPassword] = useState(false);
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
@@ -134,13 +137,13 @@ export default function LoginPage() {
   const errors = form.formState.errors;
 
   useEffect(() => {
-    if (status === 'authenticated') router.replace('/');
-  }, [status, router]);
+    if (status === 'authenticated') router.replace(next);
+  }, [status, router, next]);
 
   async function onSubmit(values: LoginInput) {
     try {
       await login(values.email, values.password);
-      router.replace('/');
+      router.replace(next);
     } catch (error) {
       toast.error(authErrorMessage(error));
     }
@@ -276,7 +279,7 @@ export default function LoginPage() {
           <p className="mt-6 text-center text-sm text-muted-foreground">
             还没有账号？
             <Link
-              href="/register"
+              href={next === '/' ? '/register' : `/register?next=${encodeURIComponent(next)}`}
               className="rounded font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               创建账号
@@ -285,5 +288,13 @@ export default function LoginPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageContent />
+    </Suspense>
   );
 }

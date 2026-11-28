@@ -10,7 +10,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-teamflow}
       TZ: Asia/Shanghai
     ports:
-      - '55432:5432'
+      - '127.0.0.1:55432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -24,7 +24,7 @@ services:
     restart: unless-stopped
     command: ['redis-server', '--appendonly', 'yes']
     ports:
-      - '6380:6379'
+      - '127.0.0.1:6380:6379'
     volumes:
       - redisdata:/data
     healthcheck:
@@ -42,8 +42,8 @@ services:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
     volumes:
       - miniodata:/data
     healthcheck:
@@ -78,10 +78,10 @@ services:
       APP_URL: ${APP_URL:-http://localhost}
       DATABASE_URL: postgresql://${POSTGRES_USER:-teamflow}:${POSTGRES_PASSWORD:-teamflow}@postgres:5432/${POSTGRES_DB:-teamflow}?schema=public
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-please-32-bytes-minimum}
+      JWT_SECRET: ${JWT_SECRET:-}
       JWT_ACCESS_TTL_SECONDS: 900
       REFRESH_TTL_DAYS: 7
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:3000}
       TZ: Asia/Shanghai
       API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:4000}
@@ -100,12 +100,13 @@ services:
       AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-20000}
       AGENT_MAIL_ENABLED: ${AGENT_MAIL_ENABLED:-false}
       AGENT_MAIL_CLI_ENTRY: ${AGENT_MAIL_CLI_ENTRY:-}
+      TRUST_PROXY: 1
       LOG_LEVEL: info
     volumes:
       - apistorage:/app/storage
     ports:
-      - '4000:4000'
-      - '1235:1235'
+      - '127.0.0.1:4000:4000'
+      - '127.0.0.1:1235:1235'
     depends_on:
       postgres:
         condition: service_healthy
@@ -129,7 +130,7 @@ services:
     environment:
       NODE_ENV: production
     ports:
-      - '3000:3000'
+      - '127.0.0.1:3000:3000'
     depends_on:
       api:
         condition: service_healthy
@@ -164,7 +165,7 @@ services:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - promdata:/prometheus
     ports:
-      - '9090:9090'
+      - '127.0.0.1:9090:9090'
 
   grafana:
     image: grafana/grafana:11.3.0
@@ -178,7 +179,7 @@ services:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafanadata:/var/lib/grafana
     ports:
-      - '3001:3000'
+      - '127.0.0.1:3001:3000'
     depends_on:
       - prometheus
 

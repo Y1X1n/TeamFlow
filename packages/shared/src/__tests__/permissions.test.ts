@@ -30,6 +30,12 @@ describe('permissions', () => {
     expect(resolvePermissions('VIEWER')).toEqual(['comment:create', 'report:view']);
   });
 
+  it('never grants owner-only permissions through overrides', () => {
+    expect(hasPermission('ADMIN', { 'project:delete': true }, 'project:delete')).toBe(false);
+    expect(hasPermission('MEMBER', { 'project:delete': true }, 'project:delete')).toBe(false);
+    expect(hasPermission('OWNER', null, 'project:delete')).toBe(true);
+  });
+
   it('ignores unknown override keys when resolving', () => {
     const result = resolvePermissions('MEMBER', {
       'unknown:key': true,

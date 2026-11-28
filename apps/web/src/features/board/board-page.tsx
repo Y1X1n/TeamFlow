@@ -1023,9 +1023,14 @@ export function BoardPage({ projectId }: { projectId: string }) {
               })
             )}
           </div>
-          <DragOverlay dropAnimation={null}>
-            {activeTask ? <TaskCardOverlay task={activeTask} /> : null}
-          </DragOverlay>
+          {mounted
+            ? createPortal(
+                <DragOverlay dropAnimation={null}>
+                  {activeTask ? <TaskCardOverlay task={activeTask} /> : null}
+                </DragOverlay>,
+                document.body,
+              )
+            : null}
         </DndContext>
       )}
 

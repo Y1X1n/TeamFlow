@@ -139,16 +139,13 @@ paths:
       operationId: logout
       tags: [Auth]
       summary: 退出登录
-      security:
-        - bearerAuth: []
-        - refreshCookie: []
+      description: 公开端点；若请求携带 Refresh Cookie 则吊销对应令牌，始终清除 Cookie。
       responses:
         '204':
           description: 已吊销 Refresh Token 并清除 Cookie。
           headers:
             Set-Cookie:
               schema: { type: string }
-        '401': { $ref: '#/components/responses/Problem401' }
 
   /users/me:
     get:
@@ -402,7 +399,7 @@ paths:
       operationId: updateMember
       tags: [Members]
       summary: 修改成员角色/权限覆盖
-      description: 需要 `member:manage`；ADMIN 不能修改 OWNER 或其他 ADMIN；OWNER 不可修改（409）。
+      description: 需要 `member:manage`；不能修改 OWNER 或同级/上级成员；ADMIN 不能修改其他 ADMIN。
       requestBody:
         required: true
         content:
@@ -423,7 +420,7 @@ paths:
       operationId: removeMember
       tags: [Members]
       summary: 移除成员
-      description: 需要 `member:manage`；不能移除 OWNER。
+      description: 需要 `member:manage`；不能移除 OWNER 或同级/上级成员。
       responses:
         '204': { description: 已移除；该成员实时连接将在 5 秒内断开 }
         '401': { $ref: '#/components/responses/Problem401' }
@@ -2009,7 +2006,7 @@ components:
           description: 仅 OWNER 可授予 ADMIN
         permissionOverrides:
           type: [object, 'null']
-          description: 权限键 → 布尔；null 表示清除全部覆盖
+          description: 权限键 → 布尔；null 表示清除全部覆盖。只能授予操作者自身拥有的权限，`project:delete` 始终仅 OWNER。
           additionalProperties: { type: boolean }
         skills:
           type: array
