@@ -5,9 +5,17 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
-/** 仅接受站内绝对路径，避免登录后的开放重定向。 */
+/** 仅接受站内绝对路径，避免登录后的开放重定向或回到登录页形成循环。 */
 export function safeNextPath(value: string | null | undefined): string {
   if (!value || !value.startsWith('/') || value.startsWith('//') || value.includes('\\')) {
+    return '/';
+  }
+  if (
+    value === '/login' ||
+    value.startsWith('/login?') ||
+    value === '/register' ||
+    value.startsWith('/register?')
+  ) {
     return '/';
   }
   return value;

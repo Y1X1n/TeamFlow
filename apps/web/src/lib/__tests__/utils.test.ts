@@ -24,6 +24,7 @@ describe('utils', () => {
     expect(safeNextPath('https://evil.example')).toBe('/');
     expect(safeNextPath('//evil.example')).toBe('/');
     expect(safeNextPath('/\\evil.example')).toBe('/');
+    expect(safeNextPath('/login?next=/invite/x')).toBe('/');
     expect(safeNextPath(null)).toBe('/');
   });
 });
