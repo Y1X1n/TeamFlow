@@ -4,6 +4,11 @@ import { Prisma } from '@prisma/client';
 import type { UpdateMemberInput, CreateInviteInput } from '@teamflow/shared/schemas';
 import type { ProjectRole } from '@teamflow/shared/enums';
 import type { PermissionOverrides } from '@teamflow/shared/permissions';
+import {
+  isPermissionKey,
+  OWNER_ONLY_PERMISSIONS,
+  type Permission,
+} from '@teamflow/shared/permissions';
 import { DomainError } from '../../common/domain-error';
 import { randomToken, sha256Hex } from '../../common/hash';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -14,6 +19,22 @@ import { AccessService } from '../permissions/access.service';
 import { ProjectsService } from '../projects/projects.service';
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+const ROLE_WEIGHT: Record<ProjectRole, number> = {
+  OWNER: 4,
+  ADMIN: 3,
+  MEMBER: 2,
+  VIEWER: 1,
+};
+
+function assertCanManageMember(actorRole: ProjectRole, targetRole: ProjectRole): void {
+  if (actorRole === 'ADMIN' && targetRole === 'ADMIN') {
+    throw new DomainError('ADMIN_CANNOT_MANAGE_ADMIN', 409, 'Admins cannot manage admins');
+  }
+  if (ROLE_WEIGHT[actorRole] <= ROLE_WEIGHT[targetRole]) {
+    throw new DomainError('FORBIDDEN', 403, 'Cannot manage a member at or above your role');
+  }
+}
 
 export interface SerializedMember {
   id: string;
@@ -285,11 +306,33 @@ export class MembersService {
     if (target.role === 'OWNER') {
       throw new DomainError('OWNER_IMMUTABLE', 409, 'Owner cannot be modified');
     }
-    if (actorAccess.role === 'ADMIN' && target.role === 'ADMIN') {
-      throw new DomainError('ADMIN_CANNOT_MANAGE_ADMIN', 409, 'Admins cannot manage admins');
+    assertCanManageMember(actorAccess.role, target.role);
+    if (
+      input.role !== undefined &&
+      input.role !== target.role &&
+      ROLE_WEIGHT[input.role] >= ROLE_WEIGHT[actorAccess.role]
+    ) {
+      throw new DomainError('FORBIDDEN', 403, 'Cannot grant a role at or above your own');
     }
-    if (input.role === 'ADMIN' && actorAccess.role !== 'OWNER') {
-      throw new DomainError('FORBIDDEN', 403, 'Only the owner can grant admin');
+    if (input.permissionOverrides) {
+      const grantable = new Set<Permission>(
+        actorAccess.permissions.filter(
+          (permission) => !OWNER_ONLY_PERMISSIONS.includes(permission),
+        ),
+      );
+      const forbidden = Object.entries(input.permissionOverrides)
+        .filter(
+          ([key, granted]) =>
+            granted === true && (!isPermissionKey(key) || !grantable.has(key as Permission)),
+        )
+        .map(([key]) => key);
+      if (forbidden.length > 0) {
+        throw new DomainError(
+          'FORBIDDEN',
+          403,
+          `Cannot grant permissions you do not have: ${forbidden.join(', ')}`,
+        );
+      }
     }
 
     const data: Prisma.ProjectMemberUpdateInput = {};
@@ -391,19 +434,27 @@ export class MembersService {
     if (target.role === 'OWNER') {
       throw new DomainError('OWNER_IMMUTABLE', 409, 'Owner cannot be removed');
     }
-    if (actorAccess.role === 'ADMIN' && target.role === 'ADMIN') {
-      throw new DomainError('ADMIN_CANNOT_MANAGE_ADMIN', 409, 'Admins cannot manage admins');
-    }
+    assertCanManageMember(actorAccess.role, target.role);
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.projectMember.delete({ where: { id: target.id } });
-      await this.activities.record(tx, {
-        projectId,
-        actorId,
-        type: 'MEMBER_REMOVED',
-        payload: { userId: targetUserId },
-      });
-    });
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.taskWatcher.deleteMany({
+          where: { userId: targetUserId, task: { projectId } },
+        });
+        await tx.task.updateMany({
+          where: { projectId, assigneeId: targetUserId },
+          data: { assigneeId: null },
+        });
+        await tx.projectMember.delete({ where: { id: target.id } });
+        await this.activities.record(tx, {
+          projectId,
+          actorId,
+          type: 'MEMBER_REMOVED',
+          payload: { userId: targetUserId },
+        });
+      },
+      { timeout: 30_000, maxWait: 5_000 },
+    );
     await this.notifications.create({
       userId: targetUserId,
       type: 'MEMBER_REMOVED',

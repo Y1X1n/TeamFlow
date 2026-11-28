@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -10,6 +10,42 @@ import { DomainError } from '../../common/domain-error';
 
 const execFileAsync = promisify(execFile);
 const STATUS_CACHE_MS = 5 * 60 * 1000;
+
+const CHILD_ENV_KEYS = new Set([
+  'path',
+  'home',
+  'userprofile',
+  'user',
+  'logname',
+  'appdata',
+  'localappdata',
+  'xdg_config_home',
+  'xdg_data_home',
+  'temp',
+  'tmp',
+  'tmpdir',
+  'systemroot',
+  'comspec',
+  'pathext',
+  'windir',
+  'lang',
+  'lc_all',
+  'term',
+  'no_color',
+  'xdg_runtime_dir',
+  'dbus_session_bus_address',
+]);
+
+/** 只给 CLI 运行所需的环境变量，避免把 JWT/数据库/对象存储密钥传给第三方子进程。 */
+function minimalChildEnv(): NodeJS.ProcessEnv {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key, value]) => value !== undefined && CHILD_ENV_KEYS.has(key.toLowerCase()),
+    ),
+  );
+  env.NO_COLOR = '1';
+  return env;
+}
 
 interface CliEnvelope<T> {
   ok?: boolean;
@@ -78,6 +114,7 @@ function extractJson(text: string): CliEnvelope<unknown> | null {
 
 @Injectable()
 export class AgentMailService {
+  private readonly logger = new Logger(AgentMailService.name);
   private cachedStatus: { status: AgentMailStatus; at: number } | null = null;
 
   constructor(private readonly config: ConfigService) {}
@@ -99,6 +136,18 @@ export class AgentMailService {
     return null;
   }
 
+  private childEnv(): NodeJS.ProcessEnv {
+    const env = minimalChildEnv();
+    // e2e 的 fake CLI 需要把调用写入临时文件；仅在 test 环境透传。
+    if (this.config.get<string>('NODE_ENV') === 'test') {
+      for (const key of ['AGENT_MAIL_CAPTURE', 'AGENT_MAIL_FAKE_DIR']) {
+        const value = process.env[key];
+        if (value) env[key] = value;
+      }
+    }
+    return env;
+  }
+
   private mapCliError(error: unknown): DomainError {
     const failure = error as {
       code?: number | string;
@@ -107,12 +156,7 @@ export class AgentMailService {
       stderr?: string;
       message?: string;
     };
-    const envelope = extractJson(failure.stdout ?? '');
-    const message =
-      envelope?.error?.message?.trim() ||
-      failure.stderr?.trim() ||
-      failure.message ||
-      'Agent Mail 调用失败';
+    this.logger.warn(`Agent Mail CLI failed (code=${String(failure.code ?? 'unknown')})`);
     if (failure.killed) {
       return new DomainError('EMAIL_TIMEOUT', 504, 'Agent Mail 调用超时，请稍后重试');
     }
@@ -121,16 +165,16 @@ export class AgentMailService {
     }
     switch (failure.code) {
       case 2:
-        return new DomainError('EMAIL_INVALID_REQUEST', 422, message);
+        return new DomainError('EMAIL_INVALID_REQUEST', 422, 'Agent Mail 请求参数无效');
       case 3:
         this.cachedStatus = null;
         return new DomainError('EMAIL_AUTH_REQUIRED', 503, 'Agent Mail 授权已失效，请重新登录 CLI');
       case 6:
-        return new DomainError('EMAIL_REJECTED', 422, message);
+        return new DomainError('EMAIL_REJECTED', 422, 'Agent Mail 拒绝了发送请求');
       case 7:
-        return new DomainError('EMAIL_RATE_LIMITED', 429, message);
+        return new DomainError('EMAIL_RATE_LIMITED', 429, 'Agent Mail 触发限流，请稍后重试');
       default:
-        return new DomainError('EMAIL_SEND_FAILED', 502, message);
+        return new DomainError('EMAIL_SEND_FAILED', 502, 'Agent Mail 调用失败，请稍后重试');
     }
   }
 
@@ -149,15 +193,14 @@ export class AgentMailService {
         timeout: 25_000,
         maxBuffer: 2 * 1024 * 1024,
         windowsHide: true,
-        env: process.env,
+        env: this.childEnv(),
       });
       const envelope = extractJson(stdout);
       if (!envelope || envelope.ok === false || envelope.data === undefined) {
-        throw new DomainError(
-          'EMAIL_SEND_FAILED',
-          502,
-          envelope?.error?.message || 'Agent Mail 返回格式异常',
+        this.logger.warn(
+          `Agent Mail returned an error envelope (code=${envelope?.error?.code ?? 'unknown'})`,
         );
+        throw new DomainError('EMAIL_SEND_FAILED', 502, 'Agent Mail 返回错误，请稍后重试');
       }
       return envelope.data as T;
     } catch (error) {

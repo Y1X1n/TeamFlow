@@ -8,6 +8,21 @@ interface Node {
   marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
 }
 
+const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
+
+/** 只允许常见链接协议，阻止 javascript:/data: 等存储型 XSS。 */
+export function safeRichTextHref(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed, 'https://teamflow.local');
+    return SAFE_LINK_PROTOCOLS.has(url.protocol) ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
 function renderText(node: Node, key: number): ReactNode {
   let content: ReactNode = node.text ?? '';
   for (const mark of node.marks ?? []) {
@@ -16,16 +31,14 @@ function renderText(node: Node, key: number): ReactNode {
     if (mark.type === 'code') content = <code>{content}</code>;
     if (mark.type === 'strike') content = <s>{content}</s>;
     if (mark.type === 'link') {
-      content = (
-        <a
-          className="text-primary underline"
-          href={String(mark.attrs?.href ?? '#')}
-          target="_blank"
-          rel="noreferrer"
-        >
-          {content}
-        </a>
-      );
+      const href = safeRichTextHref(mark.attrs?.href);
+      if (href) {
+        content = (
+          <a className="text-primary underline" href={href} target="_blank" rel="noreferrer">
+            {content}
+          </a>
+        );
+      }
     }
   }
   return <span key={key}>{content}</span>;

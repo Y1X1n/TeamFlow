@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/node';
 import type { Request, Response } from 'express';
 import { problemType, type ProblemDetails } from '@teamflow/shared/errors';
 import { DomainError } from './domain-error';
+import { redactSensitiveUrl } from './log-redaction';
 
 const TITLES: Record<number, string> = {
   400: 'Bad Request',
@@ -84,7 +85,7 @@ export class ProblemDetailsFilter implements ExceptionFilter {
 
     if (status >= 500) {
       this.logger.error(
-        `${request.method} ${request.originalUrl} -> ${status}`,
+        `${request.method} ${redactSensitiveUrl(request.originalUrl)} -> ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
       if (Sentry.getClient()) Sentry.captureException(exception);
