@@ -152,15 +152,7 @@ export class AgentMailService {
       stderr?: string;
       message?: string;
     };
-    const envelope = extractJson(failure.stdout ?? '');
-    this.logger.warn(
-      `Agent Mail CLI failed (code=${String(failure.code ?? 'unknown')}): ${
-        envelope?.error?.message?.trim() ||
-        failure.stderr?.trim().slice(0, 500) ||
-        failure.message ||
-        'no detail'
-      }`,
-    );
+    this.logger.warn(`Agent Mail CLI failed (code=${String(failure.code ?? 'unknown')})`);
     if (failure.killed) {
       return new DomainError('EMAIL_TIMEOUT', 504, 'Agent Mail 调用超时，请稍后重试');
     }
