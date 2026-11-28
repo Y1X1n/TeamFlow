@@ -27,7 +27,7 @@
 4. 前端收到 401 `TOKEN_EXPIRED` 时先静默刷新一次再重放原请求；刷新失败跳转登录。
 5. 密码：8–72 字符，至少含字母与数字；scrypt 加盐哈希。登录失败统一 `INVALID_CREDENTIALS`。
 6. CORS：开发允许 `http://localhost:3000`；生产白名单域名；`credentials=true`；允许头 `Authorization, Content-Type`；暴露头 `X-Request-Id`。
-7. 限流：登录 10 次/15 分钟/IP；注册 5 次/小时/IP；全局 300 次/分钟/用户（`429 RATE_LIMITED`，响应头 `Retry-After`）。
+7. 限流：登录 10 次/15 分钟/IP；注册 5 次/小时/IP；全局 300 次/分钟/IP（`429 RATE_LIMITED`）。反向代理部署需设置 `TRUST_PROXY=1`，否则所有请求共用代理 IP 的限流桶。
 
 ## 3. 端点与权限映射
 
@@ -40,7 +40,7 @@
 | POST  | `/auth/register`       | 公开           | 注册并登录          |
 | POST  | `/auth/login`          | 公开           | 登录                |
 | POST  | `/auth/refresh`        | Refresh Cookie | 轮换令牌            |
-| POST  | `/auth/logout`         | 登录           | 登出                |
+| POST  | `/auth/logout`         | 公开           | 登出（有 Cookie 则吊销） |
 | GET   | `/users/me`            | 登录           | 当前用户            |
 | PATCH | `/users/me`            | 登录           | 改昵称/头像         |
 | GET   | `/users/me/tasks`      | 登录           | 跨项目我的任务      |
@@ -366,7 +366,7 @@ TaskCard 新增 `subtaskTotal/subtaskDone`；TaskDetail 新增 `subtasks/watchin
 | 方法 | 路径                           | 权限          | 说明                                           |
 | ---- | ------------------------------ | ------------- | ---------------------------------------------- |
 | GET  | `/ai/status`                   | 登录          | `{enabled,provider,model,fallback,costNotice}` |
-| POST | `/tasks/{taskId}/ai-breakdown` | `task:update` | 生成 3–6 条子任务建议，限流 10 次/分钟         |
+| POST | `/tasks/{taskId}/ai-breakdown` | `task:update` | 生成 1–6 条子任务建议，限流 10 次/分钟         |
 
 - 服务端读取任务标题/描述，调用配置的 OpenAI 兼容接口；未配置或调用失败时**透明回退本地规则**，`source=local` 并在 `notice` 说明。
 - 不自动写库；客户端确认后通过子任务接口创建。
@@ -593,7 +593,7 @@ TaskCard 新增 `subtaskTotal/subtaskDone`；TaskDetail 新增 `subtasks/watchin
 
 | 方法 | 路径                      | 所需权限      | 说明                                               |
 | ---- | ------------------------- | ------------- | -------------------------------------------------- |
-| POST | `/tasks/{taskId}/ai-plan` | `task:update` | 生成 1–6 步拆解与分工建议；限流 10 次/分钟；不写库 |
+| POST | `/tasks/{taskId}/ai-plan` | `task:update` | 生成 2–6 步拆解与分工建议；限流 10 次/分钟；不写库 |
 
 - 既有 `POST /tasks/{taskId}/ai-breakdown` 契约不变；前端改为先预览、可编辑，再创建子任务。
 - `ai-plan` 请求体：`{ useAi?: boolean }`；`useAi=false` 时使用本地规则。
@@ -621,3 +621,4 @@ TaskCard 新增 `subtaskTotal/subtaskDone`；TaskDetail 新增 `subtasks/watchin
 | 版本  | 日期       | 变更                                                        |
 | ----- | ---------- | ----------------------------------------------------------- |
 | 1.7.0 | 2026-11-25 | AI 拆解预览/编辑与任务分工建议（新增 1 个端点，共 77 操作） |
+| 1.8.0–1.22.0 | 2026-11-26–28 | 看板分组/日历/批量/工时/重复任务/移动端/CSV 导入导出/安全加固/数据一致性（共 80 操作，含本地文件下载） |
