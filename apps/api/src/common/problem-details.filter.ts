@@ -51,6 +51,10 @@ export class ProblemDetailsFilter implements ExceptionFilter {
         status = 409;
         code = 'CONFLICT';
         detail = 'Resource already exists';
+      } else if (exception.code === 'P2003') {
+        status = 409;
+        code = 'COLUMN_BUSY';
+        detail = '关联数据已变化，请刷新后重试';
       }
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();
