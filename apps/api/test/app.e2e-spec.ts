@@ -155,6 +155,15 @@ describe('TeamFlow API (e2e)', () => {
       .send({ body: { type: 'doc', content: [] } });
     expect(comment.status).toBe(201);
 
+    const attachment = await ownerAgent
+      .post(`/api/v1/tasks/${task.body.id}/attachments`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .attach('file', Buffer.from('soft delete attachment'), {
+        filename: 'note.txt',
+        contentType: 'text/plain',
+      });
+    expect(attachment.status).toBe(201);
+
     const removed = await ownerAgent
       .delete(`/api/v1/tasks/${task.body.id}`)
       .set('Authorization', `Bearer ${ownerToken}`);
@@ -171,9 +180,19 @@ describe('TeamFlow API (e2e)', () => {
         .set('Authorization', `Bearer ${ownerToken}`);
       expect(response.status).toBe(404);
     }
+
+    const download = await ownerAgent
+      .get(`/api/v1/attachments/${attachment.body.id}/download`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(download.status).toBe(404);
+    const deleteAttachment = await ownerAgent
+      .delete(`/api/v1/attachments/${attachment.body.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(deleteAttachment.status).toBe(404);
   });
 
-  it('lists deleted tasks in trash and restores them with dependencies', async () => {    const board = await ownerAgent
+  it('lists deleted tasks in trash and restores them with dependencies', async () => {
+    const board = await ownerAgent
       .get(`/api/v1/projects/${projectId}/board`)
       .set('Authorization', `Bearer ${ownerToken}`);
     const todo = board.body.columns.find((column: { name: string }) => column.name === '待办');

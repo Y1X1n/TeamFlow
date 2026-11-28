@@ -140,8 +140,14 @@ export class TaskDependenciesService {
         });
       });
     } catch (error) {
-      // 并发重复添加由唯一键兜底，保持幂等语义。
-      if ((error as { code?: string }).code !== 'P2002') throw error;
+      // 并发重复添加由唯一键兜底；仅吞掉依赖本身的唯一键冲突。
+      const failure = error as { code?: string; meta?: { target?: string[] | string } };
+      const target = Array.isArray(failure.meta?.target)
+        ? failure.meta.target.join(',')
+        : String(failure.meta?.target ?? '');
+      const isDuplicateDependency =
+        failure.code === 'P2002' && /task_id|blocked_by_id|taskId|blockedById/.test(target);
+      if (!isDuplicateDependency) throw error;
     }
 
     await this.events.publish(task.projectId, 'task.updated', { taskId });
@@ -156,6 +162,7 @@ export class TaskDependenciesService {
     if (!task) throw new DomainError('NOT_FOUND', 404, 'Task not found');
 
     const removed = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`project:${task.projectId}`}))`;
       const dependency = await tx.taskDependency.findUnique({
         where: { taskId_blockedById: { taskId, blockedById: blockedByTaskId } },
         select: { id: true, blockedBy: { select: { title: true } } },

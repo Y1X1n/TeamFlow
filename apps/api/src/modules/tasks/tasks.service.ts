@@ -636,28 +636,39 @@ export class TasksService {
       }
     }
 
-    let completedAt = task.completedAt;
-    let activityType: 'TASK_MOVED' | 'TASK_COMPLETED' | 'TASK_REOPENED' = 'TASK_MOVED';
-    if (target.isDone && !completedAt) {
-      completedAt = new Date();
-      activityType = 'TASK_COMPLETED';
-    } else if (!target.isDone && completedAt) {
-      completedAt = null;
-      activityType = 'TASK_REOPENED';
-    }
+    const moved = await this.prisma.$transaction(async (tx) => {
+      // 任务状态与列归属以事务内快照为准，避免并发移动/删除后记录错误来源。
+      const fresh = await tx.task.findFirst({
+        where: { id: task.id, deletedAt: null },
+        select: { columnId: true, completedAt: true, position: true },
+      });
+      if (!fresh) throw new DomainError('NOT_FOUND', 404, 'Task not found');
+      const lockIds = [...new Set([fresh.columnId, target.id])].sort();
+      for (const id of lockIds) await this.lockColumn(tx, id);
 
-    const position = await this.prisma.$transaction(async (tx) => {
-      await this.lockColumn(tx, target.id);
+      let completedAt = fresh.completedAt;
+      let activityType: 'TASK_MOVED' | 'TASK_COMPLETED' | 'TASK_REOPENED' = 'TASK_MOVED';
+      if (target.isDone && !completedAt) {
+        completedAt = new Date();
+        activityType = 'TASK_COMPLETED';
+      } else if (!target.isDone && completedAt) {
+        completedAt = null;
+        activityType = 'TASK_REOPENED';
+      }
+
       const nextPosition = await this.positionBeforeIn(
         tx,
         target.id,
         input.beforeTaskId,
-        task.columnId === target.id ? task.id : undefined,
+        fresh.columnId === target.id ? task.id : undefined,
       );
-      await tx.task.update({
-        where: { id: task.id },
+      const updated = await tx.task.updateMany({
+        where: { id: task.id, columnId: fresh.columnId, deletedAt: null },
         data: { columnId: target.id, position: nextPosition, completedAt },
       });
+      if (updated.count === 0) {
+        throw new DomainError('TASK_NOT_IN_COLUMN', 409, '任务已被并发修改，请刷新后重试');
+      }
       await this.activities.record(tx, {
         projectId: task.projectId,
         actorId: userId,
@@ -666,23 +677,23 @@ export class TasksService {
         payload: {
           taskId: task.id,
           title: task.title,
-          fromColumnId: task.columnId,
+          fromColumnId: fresh.columnId,
           toColumnId: target.id,
-          fromPosition: task.position,
+          fromPosition: fresh.position,
           toPosition: nextPosition,
         },
       });
-      return nextPosition;
+      return { position: nextPosition, completedAt, activityType };
     });
     await this.events.publish(task.projectId, 'task.moved', {
       taskId: task.id,
       columnId: target.id,
-      position,
-      completedAt: completedAt ? completedAt.toISOString() : null,
+      position: moved.position,
+      completedAt: moved.completedAt ? moved.completedAt.toISOString() : null,
     });
 
     // 仅在「本次完成」时生成下一次任务，避免重复完成同一任务时反复创建。
-    const becameCompleted = activityType === 'TASK_COMPLETED';
+    const becameCompleted = moved.activityType === 'TASK_COMPLETED';
     if (becameCompleted && task.recurrence !== 'NONE') {
       await this.createNextRecurrence(task, target.isDone);
     }
@@ -722,6 +733,8 @@ export class TasksService {
     const watcherIds = [...watcherCandidates].filter((watcherId) => memberIds.has(watcherId));
 
     const created = await this.prisma.$transaction(async (tx) => {
+      // 先锁列再更新任务行，与 move 的加锁顺序保持一致，避免行锁与列锁交叉死锁。
+      await this.lockColumn(tx, targetColumn.id);
       const claimed = await tx.task.updateMany({
         where: {
           id: task.id,
@@ -735,7 +748,6 @@ export class TasksService {
       });
       if (claimed.count === 0) return null;
 
-      await this.lockColumn(tx, targetColumn.id);
       const existing = this.sortedByPosition(
         await tx.task.findMany({
           where: { columnId: targetColumn.id, deletedAt: null },
@@ -921,12 +933,46 @@ export class TasksService {
       }
     }
 
-    const completedAt = task.column.isDone ? (task.completedAt ?? new Date()) : null;
     await this.prisma.$transaction(async (tx) => {
-      await this.lockColumn(tx, task.columnId);
-      const position = await this.nextPositionIn(tx, task.columnId);
+      // 列可能已被并发删除并迁移任务，必须在锁内重新读取列归属。
+      const fresh = await tx.task.findUnique({
+        where: { id: task.id },
+        select: { columnId: true, completedAt: true },
+      });
+      if (!fresh) throw new DomainError('NOT_FOUND', 404, 'Task not found');
+      await this.lockColumn(tx, fresh.columnId);
+      const targetColumn = await tx.boardColumn.findUnique({
+        where: { id: fresh.columnId },
+        select: { isDone: true },
+      });
+      if (targetColumn?.isDone && !fresh.completedAt) {
+        const blockers = await tx.taskDependency.findMany({
+          where: {
+            taskId: task.id,
+            blockedBy: { deletedAt: null, completedAt: null },
+          },
+          select: { blockedBy: { select: { title: true } } },
+        });
+        if (blockers.length > 0) {
+          const names = blockers
+            .slice(0, 3)
+            .map((blocker) => `「${blocker.blockedBy.title}」`)
+            .join('、');
+          throw new DomainError(
+            'TASK_BLOCKED',
+            409,
+            `仍有 ${blockers.length} 个未完成依赖${names ? `（${names}）` : ''}，无法恢复到完成列`,
+          );
+        }
+      }
+      const completedAt = targetColumn?.isDone ? (fresh.completedAt ?? new Date()) : null;
+      const position = await this.nextPositionIn(tx, fresh.columnId);
       const restored = await tx.task.updateMany({
-        where: { id: task.id, deletedAt: { not: null } },
+        where: {
+          id: task.id,
+          columnId: fresh.columnId,
+          deletedAt: { not: null },
+        },
         data: { deletedAt: null, position, completedAt },
       });
       if (restored.count === 0) {
@@ -937,7 +983,7 @@ export class TasksService {
         actorId: userId,
         taskId: task.id,
         type: 'TASK_RESTORED',
-        payload: { taskId: task.id, title: task.title, columnId: task.columnId },
+        payload: { taskId: task.id, title: task.title, columnId: fresh.columnId },
       });
     });
     await this.events.publish(task.projectId, 'task.updated', { taskId: task.id });
@@ -1108,12 +1154,17 @@ export class TasksService {
     }
 
     const movedEvents: Array<{ taskId: string; position: string }> = [];
+    // 已删除任务仍引用原列；迁移到目标列（没有可见任务时选另一列），避免外键阻塞删除。
+    const trashColumn = target ?? columns.find((item) => item.id !== columnId);
+    const lockIds = [...new Set([columnId, target?.id, trashColumn?.id])]
+      .filter((id): id is string => Boolean(id))
+      .sort();
     try {
       await this.prisma.$transaction(async (tx) => {
-        await this.lockColumn(tx, columnId);
-        if (target) await this.lockColumn(tx, target.id);
+        // 多个列按 id 排序加锁，避免并发互相删除时形成锁环。
+        for (const id of lockIds) await this.lockColumn(tx, id);
         if (target && tasks.length > 0) {
-          const existing = await this.sortedByPosition(
+          const existing = this.sortedByPosition(
             await tx.task.findMany({
               where: { columnId: target.id, deletedAt: null },
               select: { id: true, position: true },
@@ -1122,17 +1173,17 @@ export class TasksService {
           let prev = existing.at(-1)?.position ?? null;
           for (const task of tasks) {
             const position = positionBetween(prev, null);
-            prev = position;
             const completedAt = target.isDone ? (task.completedAt ?? new Date()) : null;
-            await tx.task.update({
-              where: { id: task.id },
+            // 条件更新：任务已被并发移出该列时不要把它抢回目标列。
+            const moved = await tx.task.updateMany({
+              where: { id: task.id, columnId, deletedAt: null },
               data: { columnId: target.id, position, completedAt },
             });
+            if (moved.count === 0) continue;
+            prev = position;
             movedEvents.push({ taskId: task.id, position });
           }
         }
-        // 已删除任务仍引用原列；迁移到目标列（没有可见任务时选另一列），避免外键阻塞删除。
-        const trashColumn = target ?? columns.find((item) => item.id !== columnId);
         if (trashColumn) {
           await tx.task.updateMany({
             where: { columnId, deletedAt: { not: null } },
@@ -1148,12 +1199,9 @@ export class TasksService {
         });
       });
     } catch (error) {
-      if ((error as { code?: string }).code === 'P2003') {
-        throw new DomainError(
-          'COLUMN_BUSY',
-          409,
-          '列中出现了新任务，请刷新后重试删除',
-        );
+      const code = (error as { code?: string }).code;
+      if (code === 'P2003' || code === '40P01') {
+        throw new DomainError('COLUMN_BUSY', 409, '列正在被并发修改，请刷新后重试删除');
       }
       throw error;
     }

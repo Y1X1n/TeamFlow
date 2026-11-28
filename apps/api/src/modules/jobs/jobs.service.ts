@@ -104,6 +104,7 @@ export class JobsService implements OnApplicationBootstrap, OnApplicationShutdow
         project: { archivedAt: null },
       },
       take: 2000,
+      orderBy: [{ dueDate: 'asc' }, { id: 'asc' }],
       select: {
         id: true,
         title: true,
