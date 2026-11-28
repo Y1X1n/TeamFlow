@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+export const APP_TIME_ZONE = 'Asia/Shanghai';
+
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
@@ -23,6 +25,7 @@ export function safeNextPath(value: string | null | undefined): string {
   }
   if (url.origin !== 'https://teamflow.local') return '/';
   const path = `${url.pathname}${url.search}${url.hash}`;
+  if (!path.startsWith('/') || path.startsWith('//')) return '/';
   if (
     path === '/login' ||
     path.startsWith('/login?') ||
@@ -36,21 +39,40 @@ export function safeNextPath(value: string | null | undefined): string {
 
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
   return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: APP_TIME_ZONE,
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(value));
+  }).format(date);
 }
 
 export function formatDate(value: string | null | undefined): string {
   if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
   return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: APP_TIME_ZONE,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date(value));
+  }).format(date);
+}
+
+/** 返回上海时区当天 [00:00, 24:00) 对应的瞬时，供“今天”筛选使用。 */
+export function shanghaiDayRange(now: Date = new Date()): { start: number; end: number } {
+  const validNow = Number.isNaN(now.getTime()) ? new Date() : now;
+  const dateKey = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(validNow);
+  const start = new Date(`${dateKey}T00:00:00+08:00`).getTime();
+  return { start, end: start + 24 * 60 * 60 * 1000 - 1 };
 }
 
 export function initials(name: string): string {

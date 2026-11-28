@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { TASK_PRIORITIES, TASK_PRIORITY_LABELS, TASK_RECURRENCES, TASK_RECURRENCE_LABELS } from '@teamflow/shared/enums';
 import type { TaskPriority, TaskRecurrence } from '@teamflow/shared/enums';
 import { api } from '@/lib/api';
+import { invalidateProjectSurfaces } from '@/lib/invalidate';
 import { queryKeys } from '@/lib/query-keys';
 import type { BoardData, TaskDetail } from '@/lib/types';
 import { cn, formatDateTime, isOverdue } from '@/lib/utils';
@@ -169,6 +170,7 @@ export function TaskDrawer({
           : previous,
       );
       toast.success('已保存');
+      invalidateProjectSurfaces(queryClient, projectId);
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
@@ -184,7 +186,7 @@ export function TaskDrawer({
           ? { ...previous, tasks: previous.tasks.filter((item) => item.id !== taskId) }
           : previous,
       );
-      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      invalidateProjectSurfaces(queryClient, projectId);
       toast.success('任务已删除');
       setConfirmDeleteOpen(false);
       onClose();
@@ -196,7 +198,7 @@ export function TaskDrawer({
     mutationFn: () => api<TaskDetail>(`/tasks/${taskId}/duplicate`, { method: 'POST' }),
     onSuccess: (copy) => {
       queryClient.setQueryData(queryKeys.task(copy.id), copy);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      invalidateProjectSurfaces(queryClient, projectId);
       toast.success(`已创建副本「${copy.title}」`);
     },
     onError: (error) => toast.error(getErrorMessage(error)),
@@ -247,8 +249,7 @@ export function TaskDrawer({
 
   const applySuggestedAssignee = async (userId: string) => {
     await updateTask.mutateAsync({ assigneeId: userId });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+    invalidateProjectSurfaces(queryClient, projectId);
     void queryClient.invalidateQueries({ queryKey: queryKeys.taskActivities(taskId) });
   };
 
@@ -345,14 +346,14 @@ export function TaskDrawer({
           查看与编辑任务详情、子任务、评论、活动与附件
         </SheetDescription>
 
-        <div className="flex items-center justify-between gap-2 border-b px-5 py-3 pr-12">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3 pr-12">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>任务详情</span>
             {columnName ? <Badge variant="secondary">{columnName}</Badge> : null}
             {archived ? <Badge variant="warning">项目已归档</Badge> : null}
             {!archived && !canUpdate ? <Badge variant="muted">只读</Badge> : null}
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {task ? (
               <TaskWatch
                 taskId={task.id}
@@ -857,7 +858,7 @@ export function TaskDrawer({
             <DialogHeader>
               <DialogTitle>删除任务</DialogTitle>
               <DialogDescription>
-                删除后任务将从看板移除，且无法恢复。确定删除「{task?.title ?? '该任务'}」吗？
+                删除后任务可在项目回收站恢复。确定删除「{task?.title ?? '该任务'}」吗？
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

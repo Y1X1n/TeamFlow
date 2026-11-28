@@ -379,6 +379,7 @@ export function TaskAttachments({
                         type="button"
                         variant="ghost"
                         size="icon-sm"
+                        className="relative before:absolute before:-inset-1.5 before:content-[''] focus-visible:ring-2"
                         aria-label={`预览附件 ${attachment.fileName}`}
                         onClick={() => void openPreview(attachment)}
                       >
@@ -389,6 +390,7 @@ export function TaskAttachments({
                       type="button"
                       variant="ghost"
                       size="icon-sm"
+                      className="relative before:absolute before:-inset-1.5 before:content-[''] focus-visible:ring-2"
                       aria-label={`下载附件 ${attachment.fileName}`}
                       disabled={downloading}
                       onClick={() => void downloadAttachment(attachment)}
@@ -404,7 +406,7 @@ export function TaskAttachments({
                         type="button"
                         variant="ghost"
                         size="icon-sm"
-                        className={cn('text-destructive hover:text-destructive')}
+                        className="relative text-destructive before:absolute before:-inset-1.5 before:content-[''] hover:text-destructive focus-visible:ring-2"
                         aria-label={`删除附件 ${attachment.fileName}`}
                         disabled={deleteAttachment.isPending}
                         onClick={() => setDeleteTarget(attachment)}

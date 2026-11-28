@@ -91,8 +91,8 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-30 border-b border-border/70 bg-background/85 backdrop-blur-md">
+    <div className="px-safe min-h-screen bg-background">
+      <header className="pt-safe sticky top-0 z-30 border-b border-border/70 bg-background/85 backdrop-blur-md">
         <div
           className={cn(
             'mx-auto flex h-12 items-center gap-3 px-3 md:h-14 md:gap-4 md:px-4',
@@ -267,7 +267,7 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
       {/* 移动端底部 Tab；桌面端由顶部导航承载。 */}
       <nav
         aria-label="移动端主导航"
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-background/95 pb-safe shadow-[0_-4px_20px_rgba(15,23,42,0.06)] backdrop-blur-md md:hidden"
+        className="px-safe fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-background/95 pb-safe shadow-[0_-4px_20px_rgba(15,23,42,0.06)] backdrop-blur-md md:hidden"
       >
         <div className="flex items-stretch justify-around px-2">
           {APP_NAV.map((item) => {

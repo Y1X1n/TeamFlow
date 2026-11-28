@@ -6,7 +6,7 @@ import { Download, FileUp, Loader2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { downloadTextFile } from '@/lib/download';
-import { queryKeys } from '@/lib/query-keys';
+import { invalidateProjectSurfaces } from '@/lib/invalidate';
 import type { BoardColumn, MemberSummary, TaskDetail } from '@/lib/types';
 import { formatDateTime } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -99,13 +99,18 @@ export function BoardImportDialog({
     },
     onSuccess: (result) => {
       if (result.success > 0) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+        invalidateProjectSurfaces(queryClient, projectId);
         onImported();
         setImportedLines((previous) => Array.from(new Set([...previous, ...result.succeeded])));
       }
       setFailures(result.failures);
+      const skipped = plan ? plan.rows.length - plan.validRows.length : 0;
       if (result.failures.length === 0) {
-        toast.success(`已导入 ${result.success} 个任务`);
+        toast.success(
+          skipped > 0
+            ? `已导入 ${result.success} 个任务，跳过 ${skipped} 行（校验未通过）`
+            : `已导入 ${result.success} 个任务`,
+        );
         onOpenChange(false);
       } else if (result.success === 0) {
         toast.error(`导入失败：${result.failures.length} 行未创建，可重试`);

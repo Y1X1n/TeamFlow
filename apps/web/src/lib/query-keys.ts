@@ -23,7 +23,7 @@ export const queryKeys = {
   notificationPreferences: ['notification-preferences'] as const,
   notifications: (unreadOnly: boolean) => ['notifications', { unreadOnly }] as const,
   unreadCount: ['notifications', 'unread-count'] as const,
-  myTasks: (status: string) => ['my-tasks', status] as const,
+  myTasks: (status: string, limit = 50) => ['my-tasks', status, limit] as const,
   permissionCatalog: ['permission-catalog'] as const,
   invitePreview: (token: string) => ['invite-preview', token] as const,
 };

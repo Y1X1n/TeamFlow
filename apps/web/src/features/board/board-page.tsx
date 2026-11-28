@@ -31,8 +31,9 @@ import { comparePositions } from '@teamflow/shared/fractional';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { downloadTextFile } from '@/lib/download';
+import { invalidateProjectSurfaces } from '@/lib/invalidate';
 import { queryKeys } from '@/lib/query-keys';
-import { cn } from '@/lib/utils';
+import { cn, shanghaiDayRange } from '@/lib/utils';
 import type { BoardData, MemberSummary, TaskCard, TaskDetail } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -234,7 +235,8 @@ export function BoardPage({ projectId }: { projectId: string }) {
   const canAssign =
     !archived && permissions.includes('task:update') && permissions.includes('task:assign');
   const canUpdate = !archived && permissions.includes('task:update');
-  const canSelect = canUpdate || canAssign || canMove;
+  const canSelect =
+    canUpdate || canAssign || canMove || (!archived && permissions.includes('task:delete'));
   const canDelete = !archived && permissions.includes('task:delete');
   const currentUserId = user?.id ?? null;
 
@@ -275,10 +277,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
   const filteredTasks = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     const now = Date.now();
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
+    const todayRange = shanghaiDayRange(new Date(now));
     const weekEnd = now + 7 * 24 * 60 * 60 * 1000;
     return tasks.filter((task) => {
       if (keyword && !task.title.toLowerCase().includes(keyword)) return false;
@@ -295,7 +294,11 @@ export function BoardPage({ projectId }: { projectId: string }) {
         if (dueFilter === 'overdue' && !(pending && due < now)) return false;
         if (
           dueFilter === 'today' &&
-          !(pending && due >= startOfToday.getTime() && due <= endOfToday.getTime())
+          !(
+            pending &&
+            due >= todayRange.start &&
+            due <= todayRange.end
+          )
         )
           return false;
         if (dueFilter === 'week' && !(pending && due >= now && due <= weekEnd)) return false;
@@ -440,7 +443,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
       }),
     onSuccess: (task) => {
       toast.success(`已认领任务「${task.title}」`);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      invalidateProjectSurfaces(queryClient, projectId);
       void queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
     },
     onError: (error) => toast.error(getErrorMessage(error)),
@@ -458,7 +461,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
       }),
     onSuccess: (task, variables) => {
       toast.success(`任务「${task.title}」已移到「${variables.columnName}」`);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      invalidateProjectSurfaces(queryClient, projectId);
     },
     onError: (error) => toast.error(getErrorMessage(error)),
   });
@@ -467,7 +470,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
     mutationFn: (task) => api<TaskDetail>(`/tasks/${task.id}/duplicate`, { method: 'POST' }),
     onSuccess: (copy) => {
       queryClient.setQueryData(queryKeys.task(copy.id), copy);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      invalidateProjectSurfaces(queryClient, projectId);
       toast.success(`已创建副本「${copy.title}」`, {
         action: { label: '打开', onClick: () => openTask(copy.id) },
       });
@@ -487,7 +490,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
         api<TaskCard>(`/tasks/${taskId}`, { method: 'PATCH', body: patch }),
       ),
     onSuccess: (result, variables) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      invalidateProjectSurfaces(queryClient, projectId);
       for (const taskId of variables.taskIds) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) });
       }
@@ -510,7 +513,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
         }),
       ),
     onSuccess: (result, variables) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      invalidateProjectSurfaces(queryClient, projectId);
       for (const taskId of variables.taskIds) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) });
       }
@@ -538,7 +541,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
         }),
       ),
     onSuccess: (result, variables) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      invalidateProjectSurfaces(queryClient, projectId);
       for (const taskId of variables.taskIds) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) });
       }
@@ -566,10 +569,10 @@ export function BoardPage({ projectId }: { projectId: string }) {
         }
         return api<TaskCard>(`/tasks/${taskId}`, { method: 'PATCH', body: { labels } });
       });
-      return { ...result, skipped };
+      return { ...result, success: Math.max(0, result.success - skipped), skipped };
     },
     onSuccess: (result, variables) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      invalidateProjectSurfaces(queryClient, projectId);
       for (const taskId of variables.taskIds) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.task(taskId) });
       }
@@ -588,8 +591,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
         api<void>(`/tasks/${taskId}`, { method: 'DELETE' }),
       ),
     onSuccess: (result, taskIds) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.trash(projectId) });
+      invalidateProjectSurfaces(queryClient, projectId);
       for (const taskId of taskIds) {
         queryClient.removeQueries({ queryKey: queryKeys.task(taskId) });
       }
@@ -916,7 +918,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
       ) : null}
 
       {viewMode === 'board' && columns.length > 0 ? (
-        <div className="sticky top-12 z-20 -mx-4 mt-3 flex gap-2 overflow-x-auto bg-background/95 px-4 py-2 backdrop-blur scrollbar-none md:hidden">
+        <div className="sticky top-[calc(3rem+env(safe-area-inset-top))] z-20 -mx-4 mt-3 flex gap-2 overflow-x-auto bg-background/95 px-4 py-2 backdrop-blur scrollbar-none md:hidden">
           {columns.map((column, index) => {
             const active = column.id === activeColumnId;
             return (
@@ -981,7 +983,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
           <div
             ref={boardScrollRef}
             onScroll={handleBoardScroll}
-            className="mt-4 flex flex-1 snap-x items-start gap-4 overflow-x-auto scroll-px-4 pb-4 scrollbar-thin [@media(pointer:coarse)]:snap-mandatory"
+            className="mt-4 flex flex-1 snap-x items-start gap-4 overflow-x-auto scroll-px-4 pb-24 scrollbar-thin [@media(pointer:coarse)]:snap-mandatory md:pb-4"
           >
             {columns.length === 0 ? (
               emptyColumnsState
@@ -1041,7 +1043,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
               size="icon"
               aria-label="新建任务"
               onClick={() => setCreateOpen(true)}
-              className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-4 z-20 h-14 w-14 rounded-full shadow-lg shadow-primary/25 md:hidden"
+              className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-[calc(1rem+env(safe-area-inset-right))] z-20 h-14 w-14 rounded-full shadow-lg shadow-primary/25 md:hidden"
             >
               <Plus className="h-6 w-6" aria-hidden="true" />
             </Button>,

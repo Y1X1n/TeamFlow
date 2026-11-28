@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { avatarColor, fileSize, isOverdue, safeNextPath } from '../utils';
+import {
+  avatarColor,
+  fileSize,
+  formatDate,
+  formatDateTime,
+  isOverdue,
+  safeNextPath,
+  shanghaiDayRange,
+} from '../utils';
 
 describe('utils', () => {
   it('assigns stable avatar colors', () => {
@@ -19,6 +27,14 @@ describe('utils', () => {
     expect(fileSize(3 * 1024 * 1024)).toBe('3.0 MB');
   });
 
+  it('formats dates in the Shanghai timezone and tolerates bad values', () => {
+    expect(formatDate('2026-11-22T16:30:00.000Z')).toContain('11/23');
+    expect(formatDateTime('not-a-date')).toBe('—');
+    const range = shanghaiDayRange(new Date('2026-11-22T16:30:00.000Z'));
+    expect(range.start).toBe(Date.parse('2026-11-23T00:00:00+08:00'));
+    expect(range.end - range.start).toBe(24 * 60 * 60 * 1000 - 1);
+  });
+
   it('only allows internal redirect targets', () => {
     expect(safeNextPath('/invite/abc')).toBe('/invite/abc');
     expect(safeNextPath('https://evil.example')).toBe('/');
@@ -26,6 +42,8 @@ describe('utils', () => {
     expect(safeNextPath('/\\evil.example')).toBe('/');
     expect(safeNextPath('/\t/evil.example')).toBe('/');
     expect(safeNextPath('/%2f%2fevil.example')).toBe('/');
+    expect(safeNextPath('/%2e%2e//evil.example')).toBe('/');
+    expect(safeNextPath('/a/../..//evil.example')).toBe('/');
     expect(safeNextPath('/login?next=/invite/x')).toBe('/');
     expect(safeNextPath(null)).toBe('/');
   });

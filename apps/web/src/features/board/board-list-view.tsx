@@ -150,8 +150,15 @@ export function BoardListView({
                   <button
                     type="button"
                     className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={`打开任务：${task.title}`}
-                    onClick={() => onOpenTask(task.id)}
+                    aria-label={
+                      selectionMode ? `选择任务：${task.title}` : `打开任务：${task.title}`
+                    }
+                    disabled={selectionDisabled}
+                    onClick={() =>
+                      selectionMode
+                        ? onToggleSelected(task.id, !selectedIds.has(task.id))
+                        : onOpenTask(task.id)
+                    }
                   >
                     <div className="flex flex-wrap items-center gap-1.5">
                       <PriorityBadge priority={task.priority} />
@@ -332,8 +339,15 @@ export function BoardListView({
                         task.completedAt && 'text-muted-foreground line-through',
                       )}
                       title={task.title}
-                      aria-label={`打开任务：${task.title}`}
-                      onClick={() => onOpenTask(task.id)}
+                      aria-label={
+                        selectionMode ? `选择任务：${task.title}` : `打开任务：${task.title}`
+                      }
+                      disabled={selectionDisabled}
+                      onClick={() =>
+                        selectionMode
+                          ? onToggleSelected(task.id, !selectedIds.has(task.id))
+                          : onOpenTask(task.id)
+                      }
                     >
                       {task.title}
                     </button>

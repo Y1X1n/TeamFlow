@@ -177,6 +177,7 @@ function PermissionsForm({
       toast.success(`已更新 ${member.name} 的权限覆盖`);
       void queryClient.invalidateQueries({ queryKey: queryKeys.members(projectId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.myPermissions(projectId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) });
       onDone();
     },
