@@ -41,6 +41,7 @@ import { BoardColumnView } from './board-column';
 import { BoardHeader } from './board-header';
 import { BoardToolbar } from './board-toolbar';
 import { BoardBulkActions } from './board-bulk-actions';
+import { BoardImportDialog } from './board-import-dialog';
 import { BoardTrashDialog } from './board-trash-dialog';
 import { CreateTaskDialog } from './create-task-dialog';
 import { TaskCardOverlay } from './task-card';
@@ -174,6 +175,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollRafRef = useRef<number | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [quickAddColumnId, setQuickAddColumnId] = useState<string | null>(null);
@@ -886,6 +888,8 @@ export function BoardPage({ projectId }: { projectId: string }) {
         onToggleSelection={handleToggleSelectionMode}
         onExportCsv={handleExportCsv}
         exportDisabled={filteredTasks.length === 0}
+        canImport={canCreate}
+        onImport={() => setImportOpen(true)}
         canOpenTrash={permissions.includes('task:delete')}
         onOpenTrash={() => setTrashOpen(true)}
       />
@@ -1053,6 +1057,18 @@ export function BoardPage({ projectId }: { projectId: string }) {
         onOpenChange={setTrashOpen}
         projectId={projectId}
         canRestore={!archived}
+      />
+
+      <BoardImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        projectId={projectId}
+        columns={columns}
+        members={members}
+        defaultColumnId={columns[0]?.id ?? null}
+        onImported={() => {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.activities(projectId) });
+        }}
       />
 
       <ConfirmDialog

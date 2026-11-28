@@ -639,6 +639,183 @@ test.describe('critical flows', () => {
     }
   });
 
+  test('CSV import previews rows and creates tasks', async ({ page }) => {
+    const token = await authenticate(page);
+    const projectId = await demoProjectId(token);
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const board = await fetch(`${API}/projects/${projectId}/board`, { headers }).then((response) =>
+      expectJson<{
+        columns: Array<{ id: string; name: string; isDone: boolean }>;
+        members: Array<{ userId: string; name: string }>;
+      }>(response, 'load board'),
+    );
+    const column = board.columns.find((item) => !item.isDone);
+    const member = board.members[0];
+    if (!column) throw new Error('Demo project has no non-done column');
+    if (!member) throw new Error('Demo project has no members');
+
+    const suffix = Date.now();
+    const titles = [`E2E 导入 A ${suffix}`, `E2E 导入 B ${suffix}`];
+    const csv = [
+      '任务标题,看板列,负责人,优先级,截止时间,预计工时,标签',
+      `${titles[0]},${column.name},${member.name},高,2026-12-20 18:00,2,前端、导入`,
+      `${titles[1]},${column.name},${member.name},低,,1.5,导入`,
+    ].join('\n');
+
+    try {
+      await page.goto(`/projects/${projectId}`);
+      await page.getByRole('button', { name: '导入任务', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: '导入任务' });
+      await expect(dialog).toBeVisible();
+      await dialog.getByLabel('选择 CSV 文件').setInputFiles({
+        name: 'tasks.csv',
+        mimeType: 'text/csv',
+        buffer: Buffer.from(csv, 'utf8'),
+      });
+
+      await expect(dialog.getByText('共 2 行')).toBeVisible({ timeout: 10_000 });
+      await expect(dialog.getByText('可导入 2')).toBeVisible();
+      await dialog.getByRole('button', { name: /导入 2 行/ }).click();
+      await expect(page.getByText(/已导入 2 个任务/).first()).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText(titles[0]!, { exact: true }).first()).toBeVisible({
+        timeout: 15_000,
+      });
+
+      await expect
+        .poll(
+          async () => {
+            const latest = await fetch(`${API}/projects/${projectId}/board`, { headers }).then(
+              (response) =>
+                expectJson<{
+                  tasks: Array<{
+                    title: string;
+                    columnId: string;
+                    priority: string;
+                    labels: string[];
+                    dueDate: string | null;
+                    estimateMinutes: number | null;
+                    assignee: { userId: string } | null;
+                  }>;
+                }>(response, 'poll imported tasks'),
+            );
+            const expectedDue = new Date('2026-12-20T18:00:00+08:00').toISOString();
+            return titles.every((title) => {
+              const task = latest.tasks.find((item) => item.title === title);
+              const dueOk =
+                title === titles[0]
+                  ? task?.dueDate != null && new Date(task.dueDate).toISOString() === expectedDue
+                  : task?.dueDate == null;
+              return (
+                task?.columnId === column.id &&
+                task?.priority === (title === titles[0] ? 'HIGH' : 'LOW') &&
+                task?.estimateMinutes === (title === titles[0] ? 120 : 90) &&
+                dueOk &&
+                task?.labels.includes('导入') &&
+                task?.assignee?.userId === member.userId
+              );
+            });
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+    } finally {
+      const latest = await fetch(`${API}/projects/${projectId}/board`, { headers }).then(
+        (response) =>
+          expectJson<{ tasks: Array<{ id: string; title: string }> }>(response, 'cleanup board'),
+      );
+      for (const task of latest.tasks.filter((item) => item.title.startsWith('E2E 导入'))) {
+        await fetch(`${API}/tasks/${task.id}`, { method: 'DELETE', headers });
+      }
+    }
+  });
+
+  test('CSV import retries only failed rows', async ({ page }) => {
+    const token = await authenticate(page);
+    const projectId = await demoProjectId(token);
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const board = await fetch(`${API}/projects/${projectId}/board`, { headers }).then((response) =>
+      expectJson<{
+        columns: Array<{ id: string; name: string; isDone: boolean }>;
+        members: Array<{ userId: string; name: string }>;
+      }>(response, 'load board'),
+    );
+    const column = board.columns.find((item) => !item.isDone);
+    const member = board.members[0];
+    if (!column) throw new Error('Demo project has no non-done column');
+    if (!member) throw new Error('Demo project has no members');
+
+    const suffix = Date.now();
+    const retryTitle = `E2E 重试失败 ${suffix}`;
+    const okTitle = `E2E 重试成功 ${suffix}`;
+    const csv = [
+      '任务标题,看板列,负责人,优先级',
+      `${retryTitle},${column.name},${member.name},中`,
+      `${okTitle},${column.name},${member.name},中`,
+    ].join('\n');
+
+    let failedOnce = false;
+    await page.route('**/projects/*/tasks', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      const body = route.request().postDataJSON() as { title?: string };
+      if (!failedOnce && body.title === retryTitle) {
+        failedOnce = true;
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: '模拟创建失败', code: 'INTERNAL_ERROR' }),
+        });
+        return;
+      }
+      return route.continue();
+    });
+
+    try {
+      await page.goto(`/projects/${projectId}`);
+      await page.getByRole('button', { name: '导入任务', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: '导入任务' });
+      await dialog.getByLabel('选择 CSV 文件').setInputFiles({
+        name: 'retry.csv',
+        mimeType: 'text/csv',
+        buffer: Buffer.from(csv, 'utf8'),
+      });
+      await expect(dialog.getByText('可导入 2')).toBeVisible({ timeout: 10_000 });
+      await dialog.getByRole('button', { name: /导入 2 行/ }).click();
+
+      await expect(page.getByText(/已导入 1 个任务，1 行失败/).first()).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByText('已导入 1', { exact: true })).toBeVisible();
+      await expect(dialog.getByText(retryTitle).first()).toBeVisible();
+
+      await dialog.getByRole('button', { name: /重试 1 行/ }).click();
+      await expect(dialog).toBeHidden({ timeout: 15_000 });
+
+      await expect
+        .poll(
+          async () => {
+            const latest = await fetch(`${API}/projects/${projectId}/board`, { headers }).then(
+              (response) =>
+                expectJson<{ tasks: Array<{ title: string }> }>(response, 'poll retried tasks'),
+            );
+            return [retryTitle, okTitle].every((title) =>
+              latest.tasks.some((task) => task.title === title),
+            );
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+    } finally {
+      const latest = await fetch(`${API}/projects/${projectId}/board`, { headers }).then(
+        (response) =>
+          expectJson<{ tasks: Array<{ id: string; title: string }> }>(response, 'cleanup board'),
+      );
+      for (const task of latest.tasks.filter((item) => item.title.startsWith('E2E 重试'))) {
+        await fetch(`${API}/tasks/${task.id}`, { method: 'DELETE', headers });
+      }
+    }
+  });
+
   test('mobile layout: bottom nav, board column width, drawer and list cards', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const token = await authenticate(page);

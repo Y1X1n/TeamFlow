@@ -10,6 +10,7 @@ import {
   Settings2,
   SlidersHorizontal,
   Trash2,
+  Upload,
   Wifi,
   WifiOff,
   X,
@@ -71,6 +72,8 @@ interface BoardToolbarProps {
   onToggleSelection: () => void;
   onExportCsv: () => void;
   exportDisabled: boolean;
+  canImport: boolean;
+  onImport: () => void;
   canOpenTrash: boolean;
   onOpenTrash: () => void;
 }
@@ -124,6 +127,8 @@ export function BoardToolbar({
   onToggleSelection,
   onExportCsv,
   exportDisabled,
+  canImport,
+  onImport,
   canOpenTrash,
   onOpenTrash,
 }: BoardToolbarProps) {
@@ -279,6 +284,20 @@ export function BoardToolbar({
         </Button>
       ) : null}
       </div>
+
+      {canImport ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-10 px-2.5 sm:h-8 sm:px-3"
+          onClick={onImport}
+          aria-label="导入任务"
+        >
+          <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+          <span className="hidden sm:inline">导入</span>
+        </Button>
+      ) : null}
 
       <Button
         type="button"
