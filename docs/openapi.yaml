@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: TeamFlow API
-  version: 1.7.0
+  version: 1.22.0
   description: |
-    TeamFlow 实时项目协作平台 REST API 契约（v1.7）。
+    TeamFlow 实时项目协作平台 REST API 契约（v1.22）。
 
     约定：
     - Base URL: `/api/v1`；认证方式除特别标注外均为 `Authorization: Bearer <accessToken>`。
@@ -314,6 +314,7 @@ paths:
         '401': { $ref: '#/components/responses/Problem401' }
         '403': { $ref: '#/components/responses/Problem403' }
         '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
     delete:
       operationId: deleteProject
       tags: [Projects]
@@ -695,6 +696,7 @@ paths:
         '400': { $ref: '#/components/responses/Problem400' }
         '401': { $ref: '#/components/responses/Problem401' }
         '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
         '409': { $ref: '#/components/responses/Problem409' }
         '422': { $ref: '#/components/responses/Problem422' }
 
@@ -1054,8 +1056,24 @@ paths:
               description: 有效期 300 秒
         '401': { $ref: '#/components/responses/Problem401' }
         '404': { $ref: '#/components/responses/Problem404' }
-        '409': { $ref: '#/components/responses/Problem409' }
         '503': { $ref: '#/components/responses/Problem503' }
+
+  /files/local:
+    get:
+      operationId: downloadLocalFile
+      tags: [Attachments]
+      summary: 本地存储签名下载（内部端点）
+      description: 仅 `STORAGE_DRIVER=local` 时由下载接口 302 跳转；token 5 分钟有效，不面向客户端直接调用。
+      security: []
+      parameters:
+        - { name: token, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 文件内容（Content-Disposition attachment）
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '404': { description: token 缺失、无效或文件不存在 }
 
   /projects/{projectId}/reports:
     parameters:
@@ -1265,6 +1283,7 @@ paths:
         '429': { $ref: '#/components/responses/Problem429' }
         '502': { $ref: '#/components/responses/Problem502' }
         '503': { $ref: '#/components/responses/Problem503' }
+        '504': { description: Agent Mail 调用超时 }
 
   /reports/{reportId}:
     parameters:
@@ -1686,7 +1705,7 @@ paths:
       tags: [AI]
       summary: AI 拆解任务并建议分工（需要 task:update）
       description: |
-        生成 3–6 个步骤，包含标题、负责人建议、优先级、截止天数和步骤依赖。
+        生成 2–6 个步骤，包含标题、负责人建议、优先级、截止天数和步骤依赖。
         服务端校验负责人、日期范围和依赖顺序；不会自动创建任务，由客户端预览确认后创建。
         未配置 AI 或失败时回退本地规则（按当前负载轮询分配）。限流 10 次/分钟。
       requestBody:

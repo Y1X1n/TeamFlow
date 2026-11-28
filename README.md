@@ -59,6 +59,19 @@ pnpm dev
 - 附件默认使用本地磁盘驱动（`STORAGE_DRIVER=local`，目录 `./storage`），无需 MinIO 即可开发。
 - 如需 S3/MinIO：`docker compose --profile s3 up -d minio minio-init`，并设置 `STORAGE_DRIVER=s3`（MinIO 控制台 http://localhost:9001）。
 
+### 关键环境变量
+
+| 变量                            | 说明                                                                 |
+| ------------------------------- | -------------------------------------------------------------------- |
+| `JWT_SECRET`                    | Access/Refresh/下载签名密钥，≥32 字符；生产必须使用唯一随机值         |
+| `COOKIE_SECURE`                 | Refresh Cookie 是否带 Secure；生产 HTTPS 设为 `true`                 |
+| `CORS_ORIGINS`                  | 允许的前端来源，逗号分隔                                             |
+| `TRUST_PROXY`                   | 反向代理层数；直连 API 为 `0`，经 Nginx/负载均衡为 `1`               |
+| `ENABLE_REALTIME` / `ENABLE_JOBS` | 是否启用实时服务 / 后台任务（单进程开发默认都开）                    |
+| `WORKER_ONLY`                   | 仅运行后台任务、不对外提供 HTTP/实时服务                             |
+
+生产数据库迁移使用 `pnpm --filter @teamflow/api db:deploy`（不要用 `db:migrate`）。
+
 演示账号（seed 后）：`alice@example.com` / `Passw0rd!`、`bob@example.com` / `Passw0rd!`。
 
 ### AI 配置（可选）
