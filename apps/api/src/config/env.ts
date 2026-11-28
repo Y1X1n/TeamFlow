@@ -66,6 +66,11 @@ export const envSchema = z.object({
   ENABLE_REALTIME: boolFromString(true),
   ENABLE_JOBS: boolFromString(true),
   TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
+  METRICS_TOKEN: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().min(16).optional(),
+  ),
+  HEALTH_DETAILS: boolFromString(false),
 })
   .superRefine((value, ctx) => {
     if (value.NODE_ENV === 'production' && KNOWN_DEV_JWT_SECRETS.includes(value.JWT_SECRET)) {
@@ -74,6 +79,24 @@ export const envSchema = z.object({
         path: ['JWT_SECRET'],
         message:
           'must be replaced with a unique random value in production (repo defaults are public)',
+      });
+    }
+    if (
+      value.NODE_ENV === 'production' &&
+      value.AI_BASE_URL &&
+      new URL(value.AI_BASE_URL).protocol !== 'https:'
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['AI_BASE_URL'],
+        message: 'must use https in production to protect the API key in transit',
+      });
+    }
+    if (value.NODE_ENV === 'production' && value.AI_ALLOW_LOOPBACK) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['AI_ALLOW_LOOPBACK'],
+        message: 'must be false in production',
       });
     }
   });

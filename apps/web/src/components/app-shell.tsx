@@ -59,7 +59,7 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
 
   useEffect(() => {
     if (status === 'guest') {
-      const next = `${window.location.pathname}${window.location.search}`;
+      const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
       router.replace(`/login?next=${encodeURIComponent(next)}`);
     }
   }, [status, router]);

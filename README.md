@@ -69,6 +69,9 @@ pnpm dev
 | `TRUST_PROXY`                   | 反向代理层数；直连 API 为 `0`，经 Nginx/负载均衡为 `1`               |
 | `ENABLE_REALTIME` / `ENABLE_JOBS` | 是否启用实时服务 / 后台任务（单进程开发默认都开）                    |
 | `WORKER_ONLY`                   | 仅运行后台任务、不对外提供 HTTP/实时服务                             |
+| `METRICS_TOKEN`                 | 可选；设置后 `/metrics` 需要 Bearer token，未设置时仅允许内网访问     |
+| `HEALTH_DETAILS`                | 生产 `/health` 是否返回 DB/Redis/版本细节（默认只返回 status）        |
+| `ALLOW_DEMO_SEED`               | 生产执行 `db:seed` 必须显式设为 `true`（会创建固定密码演示账号）      |
 
 生产数据库迁移使用 `pnpm --filter @teamflow/api db:deploy`（不要用 `db:migrate`）。
 
@@ -89,6 +92,8 @@ AI_ALLOW_LOOPBACK=false
 ```
 
 本地代理示例：`AI_BASE_URL=http://127.0.0.1:3425/v1`，并设置 `AI_ALLOW_LOOPBACK=true`（仅开发）。服务端在每次调用前校验协议与主机，并拒绝私有/保留地址；开发环境允许 loopback 仅用于本机代理。
+
+生产环境（`NODE_ENV=production`）要求 `AI_BASE_URL` 使用 HTTPS 且 `AI_ALLOW_LOOPBACK=false`；本地 HTTP 网关请只用于开发，或在前面加 TLS 反向代理。
 
 ### Agent Mail 配置（可选）
 

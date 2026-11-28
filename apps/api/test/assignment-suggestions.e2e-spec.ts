@@ -74,7 +74,7 @@ describe('Assignment suggestions (e2e)', () => {
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ email, role });
     expect(invite.status).toBe(201);
-    const inviteToken = (invite.body.inviteUrl as string).split('/invite/')[1];
+    const inviteToken = (invite.body.inviteUrl as string).split('#')[1];
     const accept = await request(app.getHttpServer())
       .post(`/api/v1/invites/${inviteToken}/accept`)
       .set('Authorization', `Bearer ${token}`);

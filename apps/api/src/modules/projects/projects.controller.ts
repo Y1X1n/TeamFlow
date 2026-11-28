@@ -11,6 +11,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import {
   createProjectSchema,
   projectsQuerySchema,
@@ -38,6 +39,7 @@ export class ProjectsController {
 
   @Post()
   @HttpCode(201)
+  @Throttle({ default: { limit: 20, ttl: 60 * 60 * 1000 } })
   create(
     @CurrentUser() user: { id: string },
     @Body(new ZodValidationPipe(createProjectSchema)) body: CreateProjectInput,

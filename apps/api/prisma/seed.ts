@@ -10,6 +10,16 @@ const prisma = new PrismaClient();
 const day = 24 * 60 * 60 * 1000;
 
 async function main(): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL ?? '';
+  const localDatabase = /@(?:localhost|127\.0\.0\.1|\[::1\])(?::|\/)/.test(databaseUrl);
+  if (
+    (process.env.NODE_ENV === 'production' || !localDatabase) &&
+    process.env.ALLOW_DEMO_SEED !== 'true'
+  ) {
+    throw new Error(
+      'Refusing to seed demo accounts with a known password outside a local database. Set ALLOW_DEMO_SEED=true only for disposable environments.',
+    );
+  }
   const passwordHash = await hashPassword('Passw0rd!');
   const alice = await prisma.user.upsert({
     where: { email: 'alice@example.com' },

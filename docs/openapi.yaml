@@ -544,6 +544,58 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /invites/preview:
+    post:
+      operationId: previewInviteByBody
+      tags: [Members]
+      summary: 通过请求体查看邀请信息
+      description: 新邀请链接使用 `#token` 片段，token 不进入访问日志；该端点避免 token 出现在 URL。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InviteTokenRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitePreview' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '410':
+          description: 邀请已过期/已撤销
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /invites/accept:
+    post:
+      operationId: acceptInviteByBody
+      tags: [Members]
+      summary: 通过请求体接受邀请
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InviteTokenRequest' }
+      responses:
+        '200':
+          description: 已加入项目
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '410':
+          description: 邀请已过期或已撤销
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /projects/{projectId}/permissions/me:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -1262,6 +1314,7 @@ paths:
       summary: 通过 Agent Mail 发送周报邮件（需要 report:generate）
       description: |
         仅在用户于页面内预览并确认后调用；`confirm` 必须为 true。
+        `previewToken` 只能使用一次，绑定项目、操作者与收件人；收件人必须是项目成员。
         服务端通过已授权的 agently-cli 发送，活动时间线记录邮件审计事件。
       requestBody:
         required: true
@@ -2063,7 +2116,12 @@ components:
         inviteUrl:
           type: string
           format: uri
-          description: 完整邀请链接，前端提供复制按钮；服务端仅存 token 哈希
+          description: 完整邀请链接（`/invite#<token>`），token 放在 URL 片段中；服务端仅存 token 哈希
+    InviteTokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, minLength: 1, maxLength: 512 }
     CreateInviteRequest:
       type: object
       required: [email, role]
@@ -2646,7 +2704,7 @@ components:
       type: object
       required:
         [weekStart, weekEnd, recipients, subject, body, source, model, notice,
-         sender, emailAvailable, emailReason]
+         sender, emailAvailable, emailReason, previewToken]
       properties:
         weekStart: { type: string, format: date }
         weekEnd: { type: string, format: date }
@@ -2661,16 +2719,14 @@ components:
         sender: { type: [string, 'null'], format: email }
         emailAvailable: { type: boolean }
         emailReason: { type: [string, 'null'] }
+        previewToken:
+          type: string
+          description: 10 分钟有效、绑定项目/用户/收件人的一次性发送凭证
     SendReportEmailRequest:
       type: object
-      required: [recipients, subject, body, confirm]
+      required: [previewToken, subject, body, confirm]
       properties:
-        recipients:
-          type: array
-          minItems: 1
-          maxItems: 20
-          uniqueItems: true
-          items: { type: string, format: email }
+        previewToken: { type: string, minLength: 20, maxLength: 4096 }
         subject: { type: string, minLength: 1, maxLength: 120, pattern: "^[^\\r\\n]+$" }
         body: { type: string, minLength: 1, maxLength: 12000 }
         confirm:

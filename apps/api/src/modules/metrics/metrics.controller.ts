@@ -3,23 +3,37 @@ import {
   Get,
   Header,
   Injectable,
+  NotFoundException,
+  Req,
   type CallHandler,
   type ExecutionContext,
   type NestInterceptor,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 import { Observable, finalize } from 'rxjs';
+import { isPrivateAddress } from '../../common/ip';
 import { Public } from '../../common/public.decorator';
 import { MetricsService } from './metrics.service';
 
 @Controller('metrics')
 export class MetricsController {
-  constructor(private readonly metrics: MetricsService) {}
+  constructor(
+    private readonly metrics: MetricsService,
+    private readonly config: ConfigService,
+  ) {}
 
   @Public()
   @Get()
   @Header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8')
-  metricsText(): Promise<string> {
+  async metricsText(@Req() request: Request): Promise<string> {
+    const token = this.config.get<string>('METRICS_TOKEN');
+    const authorization = request.headers.authorization;
+    if (token) {
+      if (authorization !== `Bearer ${token}`) throw new NotFoundException();
+    } else if (!isPrivateAddress(request.socket.remoteAddress)) {
+      throw new NotFoundException();
+    }
     return this.metrics.metrics();
   }
 }

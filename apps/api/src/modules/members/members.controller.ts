@@ -1,9 +1,11 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
 import {
   createInviteSchema,
+  inviteTokenSchema,
   updateMemberSchema,
   updateMemberSkillsSchema,
   type CreateInviteInput,
+  type InviteTokenInput,
   type UpdateMemberInput,
   type UpdateMemberSkillsInput,
 } from '@teamflow/shared/schemas';
@@ -96,9 +98,26 @@ export class PublicInvitesController {
     return this.members.preview(token);
   }
 
+  @Post('preview')
+  @HttpCode(200)
+  previewByBody(
+    @Body(new ZodValidationPipe(inviteTokenSchema)) body: InviteTokenInput,
+  ) {
+    return this.members.preview(body.token);
+  }
+
   @Post(':token/accept')
   @HttpCode(200)
   accept(@CurrentUser() user: { id: string }, @Param('token') token: string) {
     return this.members.accept(user.id, token);
+  }
+
+  @Post('accept')
+  @HttpCode(200)
+  acceptByBody(
+    @CurrentUser() user: { id: string },
+    @Body(new ZodValidationPipe(inviteTokenSchema)) body: InviteTokenInput,
+  ) {
+    return this.members.accept(user.id, body.token);
   }
 }

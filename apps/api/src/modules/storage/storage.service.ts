@@ -11,15 +11,17 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createReadStream, type ReadStream } from 'node:fs';
 import { mkdir, stat, unlink, writeFile } from 'node:fs/promises';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { DomainError } from '../../common/domain-error';
+import { RedisService } from '../../redis/redis.service';
 
 interface LocalTokenPayload {
   key: string;
   name: string;
   mime: string;
   exp: number;
+  jti: string;
 }
 
 export interface LocalFile {
@@ -39,7 +41,10 @@ export class StorageService implements OnModuleInit {
   private readonly s3?: S3Client;
   private readonly s3PublicEndpoint: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly redis: RedisService,
+  ) {
     this.driver = config.getOrThrow<'local' | 's3'>('STORAGE_DRIVER');
     this.localRoot = path.resolve(config.getOrThrow<string>('STORAGE_LOCAL_DIR'));
     this.secret = config.getOrThrow<string>('JWT_SECRET');
@@ -151,6 +156,7 @@ export class StorageService implements OnModuleInit {
         name: fileName,
         mime: mimeType,
         exp: Math.floor(Date.now() / 1000) + 300,
+        jti: randomUUID(),
       };
       const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
       const token = `${payloadB64}.${this.sign(payloadB64)}`;
@@ -190,14 +196,45 @@ export class StorageService implements OnModuleInit {
     } catch {
       throw new DomainError('NOT_FOUND', 404, 'Invalid file link');
     }
-    if (!payload.key || !payload.name || !payload.mime || payload.exp < Date.now() / 1000) {
+    if (
+      !payload.key ||
+      !payload.name ||
+      !payload.mime ||
+      !payload.jti ||
+      payload.exp < Date.now() / 1000
+    ) {
       throw new DomainError('NOT_FOUND', 404, 'File link expired');
     }
     return payload;
   }
 
+  async describeLocal(token: string): Promise<{ fileName: string; mimeType: string }> {
+    const payload = this.verifyLocalToken(token);
+    try {
+      await stat(this.localPath(payload.key));
+    } catch {
+      throw new DomainError('NOT_FOUND', 404, 'File not found');
+    }
+    return { fileName: payload.name, mimeType: payload.mime };
+  }
+
   async openLocal(token: string): Promise<LocalFile> {
     const payload = this.verifyLocalToken(token);
+    let consumed: string | null;
+    try {
+      consumed = await this.redis.client.set(
+        `file-download:${payload.jti}`,
+        '1',
+        'EX',
+        Math.max(1, payload.exp - Math.floor(Date.now() / 1000)),
+        'NX',
+      );
+    } catch {
+      throw new DomainError('STORAGE_UNAVAILABLE', 503, 'File link state unavailable');
+    }
+    if (!consumed) {
+      throw new DomainError('NOT_FOUND', 404, 'File link already used');
+    }
     const full = this.localPath(payload.key);
     try {
       await stat(full);

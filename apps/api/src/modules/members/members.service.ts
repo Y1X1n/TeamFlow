@@ -128,7 +128,7 @@ export class MembersService {
       });
     });
 
-    const inviteUrl = `${this.config.getOrThrow<string>('APP_URL').replace(/\/$/, '')}/invite/${rawToken}`;
+    const inviteUrl = `${this.config.getOrThrow<string>('APP_URL').replace(/\/$/, '')}/invite#${rawToken}`;
     if (user) {
       await this.notifications.create({
         userId: user.id,

@@ -188,7 +188,7 @@ export function notificationSummary(notification: Notification): NotificationSum
 function invitePathname(value: string): string | null {
   try {
     const url = new URL(value, 'http://localhost');
-    return url.pathname;
+    return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return null;
   }

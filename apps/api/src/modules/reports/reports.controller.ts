@@ -71,10 +71,11 @@ export class ReportsController {
   @RequirePermission('report:generate')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   previewEmail(
+    @CurrentUser() user: { id: string },
     @Param('projectId') projectId: string,
     @Body(new ZodValidationPipe(previewReportEmailSchema)) body: PreviewReportEmailInput,
   ) {
-    return this.reports.previewEmail(projectId, body);
+    return this.reports.previewEmail(projectId, user.id, body);
   }
 
   @Post('projects/:projectId/reports/current/email/send')

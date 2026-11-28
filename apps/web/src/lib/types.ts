@@ -272,6 +272,7 @@ export interface ReportEmailPreview {
   sender: string | null;
   emailAvailable: boolean;
   emailReason: string | null;
+  previewToken: string;
 }
 
 export interface ReportEmailSendResult {
