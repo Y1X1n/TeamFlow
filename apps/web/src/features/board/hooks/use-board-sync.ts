@@ -172,7 +172,15 @@ export function useBoardSync(options: UseBoardSyncOptions): BoardSyncState {
         const taskIds = Array.from(pendingTaskIdsRef.current);
         pendingTaskIdsRef.current.clear();
         for (const id of taskIds) {
-          void queryClient.invalidateQueries({ queryKey: queryKeys.task(id) });
+          for (const queryKey of [
+            queryKeys.task(id),
+            queryKeys.comments(id),
+            queryKeys.subtasks(id),
+            queryKeys.attachments(id),
+            queryKeys.taskActivities(id),
+          ]) {
+            void queryClient.invalidateQueries({ queryKey });
+          }
         }
         void queryClient
           .invalidateQueries({ queryKey: queryKeys.board(projectId) })

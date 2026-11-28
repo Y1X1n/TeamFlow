@@ -96,6 +96,7 @@ export function useNotificationStream(enabled = true): void {
 
       void queryClient.invalidateQueries({ queryKey: queryKeys.unreadCount });
       void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      void queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
       if (pathnameRef.current === '/inbox') {
         void queryClient.refetchQueries({ queryKey: ['notifications'], type: 'active' });
       }

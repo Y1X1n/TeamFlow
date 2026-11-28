@@ -49,7 +49,7 @@ export function MyTasksSection() {
   const [status, setStatus] = useState<MyTaskStatus>('open');
 
   const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: queryKeys.myTasks(status),
+    queryKey: queryKeys.myTasks(status, 50),
     queryFn: () => api<{ items: MyTask[] }>(`/users/me/tasks?status=${status}&limit=50`),
   });
 

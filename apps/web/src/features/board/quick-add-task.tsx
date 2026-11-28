@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { queryKeys } from '@/lib/query-keys';
+import { invalidateProjectSurfaces } from '@/lib/invalidate';
 import type { TaskCard } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,7 +37,7 @@ export function QuickAddTask({ projectId, columnId, columnName, onClose }: Quick
       }),
     onSuccess: (task) => {
       toast.success(`任务「${task.title}」已创建`);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      invalidateProjectSurfaces(queryClient, projectId);
       onClose();
     },
     onError: (error) => toast.error(getErrorMessage(error)),

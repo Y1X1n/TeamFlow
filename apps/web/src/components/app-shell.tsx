@@ -91,8 +91,8 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-30 border-b border-border/70 bg-background/85 backdrop-blur-md">
+    <div className="px-safe min-h-screen bg-background">
+      <header className="pt-safe sticky top-0 z-30 border-b border-border/70 bg-background/85 backdrop-blur-md">
         <div
           className={cn(
             'mx-auto flex h-12 items-center gap-3 px-3 md:h-14 md:gap-4 md:px-4',

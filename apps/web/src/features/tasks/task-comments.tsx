@@ -138,7 +138,7 @@ interface CommentItemProps {
   reactionPending: boolean;
   onStartEdit: () => void;
   onCancelEdit: () => void;
-  onSave: (body: Record<string, unknown>) => void;
+  onSave: (body: Record<string, unknown>) => Promise<void>;
   onRequestDelete: (comment: TaskComment) => void;
   onReply: () => void;
   onToggleReaction: (emoji: string, reacted: boolean) => void;
@@ -166,8 +166,8 @@ function CommentItem({
 }: CommentItemProps) {
   const [editJson, setEditJson] = useState<Record<string, unknown> | null>(null);
   const isAuthor = comment.author.userId === currentUserId;
-  const canEdit = isAuthor && !comment.deleted;
-  const canDelete = !comment.deleted && (isAuthor || canModerate);
+  const canEdit = !archived && isAuthor && !comment.deleted;
+  const canDelete = !archived && !comment.deleted && (isAuthor || canModerate);
   const hasActions = canEdit || canDelete;
   const replyToName = comment.replyTo?.name ?? null;
   const showReactions = !comment.deleted && comment.reactions.length > 0;
@@ -259,11 +259,14 @@ function CommentItem({
                 type="button"
                 size="sm"
                 disabled={saving || archived}
-                onClick={() => {
+                onClick={async () => {
                   const body = editJson ?? comment.body;
-                  if (body) {
-                    onSave(body);
+                  if (!body) return;
+                  try {
+                    await onSave(body);
                     setEditJson(null);
+                  } catch {
+                    // 保留草稿，错误提示由 mutation 的 onError 负责。
                   }
                 }}
               >
@@ -486,7 +489,9 @@ export function TaskComments({
                 }
                 onStartEdit={() => setEditingId(thread.root.id)}
                 onCancelEdit={() => setEditingId(null)}
-                onSave={(body) => editComment.mutate({ commentId: thread.root.id, body })}
+                onSave={async (body) => {
+                  await editComment.mutateAsync({ commentId: thread.root.id, body });
+                }}
                 onRequestDelete={(target) => setDeleteTarget(target)}
                 onReply={() => setReplyTarget(thread.root)}
                 onToggleReaction={(emoji, reacted) =>
@@ -518,7 +523,9 @@ export function TaskComments({
                         }
                         onStartEdit={() => setEditingId(reply.id)}
                         onCancelEdit={() => setEditingId(null)}
-                        onSave={(body) => editComment.mutate({ commentId: reply.id, body })}
+                        onSave={async (body) => {
+                          await editComment.mutateAsync({ commentId: reply.id, body });
+                        }}
                         onRequestDelete={(target) => setDeleteTarget(target)}
                         onReply={() => setReplyTarget(thread.root)}
                         onToggleReaction={(emoji, reacted) =>

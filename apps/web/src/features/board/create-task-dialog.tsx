@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from '@teamflow/shared/enums';
 import type { TaskPriority } from '@teamflow/shared/enums';
 import { api } from '@/lib/api';
-import { queryKeys } from '@/lib/query-keys';
+import { invalidateProjectSurfaces } from '@/lib/invalidate';
 import type { BoardColumn, MemberSummary, TaskDetail } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -94,7 +94,7 @@ export function CreateTaskDialog({
       api<TaskDetail>(`/projects/${projectId}/tasks`, { method: 'POST', body: payload }),
     onSuccess: (task) => {
       toast.success(`任务「${task.title}」已创建`);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.board(projectId) });
+      invalidateProjectSurfaces(queryClient, projectId);
       onOpenChange(false);
     },
     onError: (error) => {
