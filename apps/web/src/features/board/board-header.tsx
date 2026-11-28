@@ -57,12 +57,16 @@ export function BoardHeader({
               style={{ backgroundColor: project.color }}
               aria-hidden="true"
             />
-            <h1 className="truncate text-xl font-semibold tracking-tight">{project.name}</h1>
+            <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight sm:text-xl">
+              {project.name}
+            </h1>
             {project.archived ? <Badge variant="warning">已归档</Badge> : null}
             <Badge variant="muted">{PROJECT_ROLE_LABELS[project.myRole]}</Badge>
           </div>
           {project.description ? (
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{project.description}</p>
+            <p className="mt-1 line-clamp-1 text-xs text-muted-foreground sm:line-clamp-none sm:text-sm">
+              {project.description}
+            </p>
           ) : null}
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -102,7 +106,7 @@ export function BoardHeader({
         </div>
 
         {canCreateTask ? (
-          <Button onClick={onCreateTask}>
+          <Button onClick={onCreateTask} className="hidden md:inline-flex">
             <Plus className="h-4 w-4" aria-hidden="true" />
             新建任务
           </Button>

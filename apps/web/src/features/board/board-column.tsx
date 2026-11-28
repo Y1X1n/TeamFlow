@@ -20,6 +20,7 @@ import { SortableTaskCard } from './task-card';
 
 interface BoardColumnViewProps {
   column: BoardColumn;
+  domId?: string;
   colorIndex: number;
   tasks: TaskCard[];
   groupBy: BoardGroupBy;
@@ -90,6 +91,7 @@ function BoardGroupHeader({
 
 export function BoardColumnView({
   column,
+  domId,
   colorIndex,
   tasks,
   groupBy,
@@ -159,10 +161,11 @@ export function BoardColumnView({
 
   return (
     <section
+      id={domId}
       aria-label={`列：${column.name}`}
-      className="flex max-h-[calc(100dvh_-_15rem)] w-[85vw] max-w-80 shrink-0 snap-start flex-col rounded-xl border bg-muted/30 sm:w-80"
+      className="flex max-h-[calc(100dvh_-_15rem)] w-[85vw] max-w-80 shrink-0 snap-start flex-col rounded-2xl border border-border/70 bg-muted/40 shadow-sm sm:w-80"
     >
-      <header className="flex items-center gap-2 border-b px-3 py-2.5">
+      <header className="flex items-center gap-2 rounded-t-2xl border-b border-border/60 bg-background/50 px-3 py-2.5">
         <span
           className={cn('h-2.5 w-2.5 rounded-full', columnDotClass(colorIndex))}
           aria-hidden="true"

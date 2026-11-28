@@ -57,7 +57,7 @@ export function ProjectTabs({ projectId, className }: { projectId: string; class
       ref={containerRef}
       aria-label="项目导航"
       className={cn(
-        'relative flex items-center gap-0.5 overflow-x-auto overflow-y-hidden border-b scrollbar-thin md:flex-wrap md:overflow-x-visible',
+        'relative flex items-center gap-1.5 overflow-x-auto overflow-y-hidden pb-1 scrollbar-none md:flex-wrap md:gap-0.5 md:overflow-x-visible md:border-b md:pb-0',
         className,
       )}
     >
@@ -70,9 +70,9 @@ export function ProjectTabs({ projectId, className }: { projectId: string; class
             href={tab.href}
             aria-current={active ? 'page' : undefined}
             className={cn(
-              '-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md px-3 py-2 text-sm transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:-mb-px md:rounded-t-md md:rounded-b-none md:px-3 md:py-2 md:text-sm',
               active
-                ? 'font-medium text-foreground'
+                ? 'bg-primary/10 font-medium text-primary md:bg-transparent md:text-foreground'
                 : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
             )}
           >
@@ -84,7 +84,7 @@ export function ProjectTabs({ projectId, className }: { projectId: string; class
       <span
         aria-hidden="true"
         className={cn(
-          'pointer-events-none absolute bottom-0 left-0 h-0.5 rounded-full bg-primary will-change-transform',
+          'pointer-events-none absolute bottom-0 left-0 hidden h-0.5 rounded-full bg-primary will-change-transform md:block',
           indicator.measured ? 'opacity-100' : 'opacity-0',
           indicator.animated
             ? 'motion-safe:transition-[transform,width,opacity] motion-safe:duration-[250ms] motion-safe:ease-out motion-reduce:transition-none'

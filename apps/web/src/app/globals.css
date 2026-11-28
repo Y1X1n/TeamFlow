@@ -44,6 +44,14 @@
     scrollbar-width: thin;
   }
 
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
   /* 移动端底部安全区（刘海屏 / 手势条）。 */
   .pb-safe {
     padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));

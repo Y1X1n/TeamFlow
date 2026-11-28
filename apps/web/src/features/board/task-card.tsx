@@ -420,7 +420,7 @@ export function SortableTaskCard({
       {...listeners}
       disabled={Boolean(lockedByName)}
       aria-label={lockedByName ? `${lockedByName} 正在拖动此任务` : `拖动任务：${task.title}`}
-      className="mt-0.5 shrink-0 cursor-grab touch-none rounded p-1 text-muted-foreground opacity-60 transition-opacity hover:bg-muted hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40 group-hover/task:opacity-100"
+      className="mt-0.5 flex h-8 w-8 shrink-0 cursor-grab touch-none items-center justify-center rounded p-1 text-muted-foreground opacity-60 transition-opacity hover:bg-muted hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40 group-hover/task:opacity-100 md:h-auto md:w-auto"
     >
       <GripVertical className="h-4 w-4" aria-hidden="true" />
     </button>
