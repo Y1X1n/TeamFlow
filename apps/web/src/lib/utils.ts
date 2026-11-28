@@ -5,20 +5,33 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
-/** 仅接受站内绝对路径，避免登录后的开放重定向或回到登录页形成循环。 */
+/** 仅接受站内绝对路径，避免开放重定向或回到登录页形成循环。 */
 export function safeNextPath(value: string | null | undefined): string {
-  if (!value || !value.startsWith('/') || value.startsWith('//') || value.includes('\\')) {
-    return '/';
-  }
   if (
-    value === '/login' ||
-    value.startsWith('/login?') ||
-    value === '/register' ||
-    value.startsWith('/register?')
+    !value ||
+    !value.startsWith('/') ||
+    /[\u0000-\u001f\u007f]/.test(value) ||
+    /%(?:2f|5c)/i.test(value)
   ) {
     return '/';
   }
-  return value;
+  let url: URL;
+  try {
+    url = new URL(value, 'https://teamflow.local');
+  } catch {
+    return '/';
+  }
+  if (url.origin !== 'https://teamflow.local') return '/';
+  const path = `${url.pathname}${url.search}${url.hash}`;
+  if (
+    path === '/login' ||
+    path.startsWith('/login?') ||
+    path === '/register' ||
+    path.startsWith('/register?')
+  ) {
+    return '/';
+  }
+  return path;
 }
 
 export function formatDateTime(value: string | null | undefined): string {

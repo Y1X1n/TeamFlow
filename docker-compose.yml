@@ -78,7 +78,7 @@ services:
       APP_URL: ${APP_URL:-http://localhost}
       DATABASE_URL: postgresql://${POSTGRES_USER:-teamflow}:${POSTGRES_PASSWORD:-teamflow}@postgres:5432/${POSTGRES_DB:-teamflow}?schema=public
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to a unique random value (>=32 chars)}
+      JWT_SECRET: ${JWT_SECRET:-}
       JWT_ACCESS_TTL_SECONDS: 900
       REFRESH_TTL_DAYS: 7
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
@@ -100,7 +100,7 @@ services:
       AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-20000}
       AGENT_MAIL_ENABLED: ${AGENT_MAIL_ENABLED:-false}
       AGENT_MAIL_CLI_ENTRY: ${AGENT_MAIL_CLI_ENTRY:-}
-      TRUST_PROXY: ${TRUST_PROXY:-1}
+      TRUST_PROXY: 1
       LOG_LEVEL: info
     volumes:
       - apistorage:/app/storage

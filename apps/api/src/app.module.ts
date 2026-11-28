@@ -81,6 +81,7 @@ import { RedisModule } from './redis/redis.module';
               remoteAddress: req.remoteAddress,
               remotePort: req.remotePort,
             }),
+            res: (res: { statusCode?: number }) => ({ statusCode: res.statusCode }),
           },
           autoLogging: true,
         },

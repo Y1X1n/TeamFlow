@@ -436,22 +436,25 @@ export class MembersService {
     }
     assertCanManageMember(actorAccess.role, target.role);
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.taskWatcher.deleteMany({
-        where: { userId: targetUserId, task: { projectId } },
-      });
-      await tx.task.updateMany({
-        where: { projectId, assigneeId: targetUserId },
-        data: { assigneeId: null },
-      });
-      await tx.projectMember.delete({ where: { id: target.id } });
-      await this.activities.record(tx, {
-        projectId,
-        actorId,
-        type: 'MEMBER_REMOVED',
-        payload: { userId: targetUserId },
-      });
-    });
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.taskWatcher.deleteMany({
+          where: { userId: targetUserId, task: { projectId } },
+        });
+        await tx.task.updateMany({
+          where: { projectId, assigneeId: targetUserId },
+          data: { assigneeId: null },
+        });
+        await tx.projectMember.delete({ where: { id: target.id } });
+        await this.activities.record(tx, {
+          projectId,
+          actorId,
+          type: 'MEMBER_REMOVED',
+          payload: { userId: targetUserId },
+        });
+      },
+      { timeout: 30_000, maxWait: 5_000 },
+    );
     await this.notifications.create({
       userId: targetUserId,
       type: 'MEMBER_REMOVED',

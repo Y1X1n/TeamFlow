@@ -15,8 +15,12 @@ const CHILD_ENV_KEYS = new Set([
   'path',
   'home',
   'userprofile',
+  'user',
+  'logname',
   'appdata',
   'localappdata',
+  'xdg_config_home',
+  'xdg_data_home',
   'temp',
   'tmp',
   'tmpdir',
@@ -193,11 +197,10 @@ export class AgentMailService {
       });
       const envelope = extractJson(stdout);
       if (!envelope || envelope.ok === false || envelope.data === undefined) {
-        throw new DomainError(
-          'EMAIL_SEND_FAILED',
-          502,
-          envelope?.error?.message || 'Agent Mail 返回格式异常',
+        this.logger.warn(
+          `Agent Mail returned an error envelope (code=${envelope?.error?.code ?? 'unknown'})`,
         );
+        throw new DomainError('EMAIL_SEND_FAILED', 502, 'Agent Mail 返回错误，请稍后重试');
       }
       return envelope.data as T;
     } catch (error) {
