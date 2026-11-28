@@ -105,8 +105,75 @@ describe('TeamFlow API (e2e)', () => {
     expect(moved.body.completedAt).toBeTruthy();
   });
 
-  it('lists deleted tasks in trash and restores them with dependencies', async () => {
+  it('serializes concurrent task creation into unique positions', async () => {
     const board = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/board`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const todo = board.body.columns.find((column: { name: string }) => column.name === '待办');
+    const titles = Array.from({ length: 8 }, (_, index) => `E2E 并发任务 ${index}`);
+
+    const created = await Promise.all(
+      titles.map((title) =>
+        ownerAgent
+          .post(`/api/v1/projects/${projectId}/tasks`)
+          .set('Authorization', `Bearer ${ownerToken}`)
+          .send({ title, columnId: todo.id }),
+      ),
+    );
+    expect(created.every((response) => response.status === 201)).toBe(true);
+
+    const after = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/board`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const tasks = after.body.tasks.filter((task: { title: string }) =>
+      titles.includes(task.title),
+    ) as Array<{ id: string; position: string }>;
+    expect(tasks).toHaveLength(titles.length);
+    expect(new Set(tasks.map((task) => task.position)).size).toBe(titles.length);
+
+    for (const task of tasks) {
+      await ownerAgent
+        .delete(`/api/v1/tasks/${task.id}`)
+        .set('Authorization', `Bearer ${ownerToken}`);
+    }
+  });
+
+  it('hides comments, attachments and activities of a soft-deleted task', async () => {
+    const board = await ownerAgent
+      .get(`/api/v1/projects/${projectId}/board`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const todo = board.body.columns.find((column: { name: string }) => column.name === '待办');
+    const task = await ownerAgent
+      .post(`/api/v1/projects/${projectId}/tasks`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ title: 'E2E 软删除子资源', columnId: todo.id });
+    expect(task.status).toBe(201);
+
+    const comment = await ownerAgent
+      .post(`/api/v1/tasks/${task.body.id}/comments`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ body: { type: 'doc', content: [] } });
+    expect(comment.status).toBe(201);
+
+    const removed = await ownerAgent
+      .delete(`/api/v1/tasks/${task.body.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(removed.status).toBe(204);
+
+    const endpoints = [
+      `/api/v1/tasks/${task.body.id}/comments`,
+      `/api/v1/tasks/${task.body.id}/attachments`,
+      `/api/v1/tasks/${task.body.id}/activities`,
+    ];
+    for (const endpoint of endpoints) {
+      const response = await ownerAgent
+        .get(endpoint)
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(response.status).toBe(404);
+    }
+  });
+
+  it('lists deleted tasks in trash and restores them with dependencies', async () => {    const board = await ownerAgent
       .get(`/api/v1/projects/${projectId}/board`)
       .set('Authorization', `Bearer ${ownerToken}`);
     const todo = board.body.columns.find((column: { name: string }) => column.name === '待办');

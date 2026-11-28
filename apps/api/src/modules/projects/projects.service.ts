@@ -220,6 +220,7 @@ export class ProjectsService {
       this.prisma.boardColumn.findMany({ where: { projectId } }),
       this.prisma.task.findMany({
         where: { projectId, deletedAt: null },
+        omit: { description: true },
         include: {
           assignee: { select: { id: true, name: true, avatarUrl: true } },
           subtasks: { select: { isDone: true } },

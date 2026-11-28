@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { ActivityType } from '@teamflow/shared/enums';
 import type { Prisma } from '@prisma/client';
 import { decodeCursor, encodeCursor } from '../../common/pagination';
+import { DomainError } from '../../common/domain-error';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export interface ActivityInput {
@@ -33,6 +34,11 @@ export class ActivitiesService {
   }
 
   async listForTask(taskId: string, cursor: string | undefined, limit: number) {
+    const task = await this.prisma.task.findFirst({
+      where: { id: taskId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!task) throw new DomainError('NOT_FOUND', 404, 'Task not found');
     return this.query({ taskId }, cursor, limit);
   }
 

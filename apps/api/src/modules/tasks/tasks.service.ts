@@ -237,8 +237,24 @@ export class TasksService {
     return this.sortedByPosition(columns);
   }
 
-  private async nextPosition(columnId: string, excludeTaskId?: string): Promise<string> {
-    const tasks = await this.prisma.task.findMany({
+  /**
+   * 同一列的 position 计算必须串行化，否则并发创建/移动会拿到相同 position。
+   * advisory lock 在事务结束时自动释放。
+   */
+  private async lockColumn(tx: Prisma.TransactionClient, columnId: string): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`column:${columnId}`}))`;
+  }
+
+  private async lockProject(tx: Prisma.TransactionClient, projectId: string): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`project:${projectId}`}))`;
+  }
+
+  private async nextPositionIn(
+    tx: Prisma.TransactionClient,
+    columnId: string,
+    excludeTaskId?: string,
+  ): Promise<string> {
+    const tasks = await tx.task.findMany({
       where: {
         columnId,
         deletedAt: null,
@@ -250,12 +266,13 @@ export class TasksService {
     return positionBetween(sorted.at(-1)?.position ?? null, null);
   }
 
-  private async positionBefore(
+  private async positionBeforeIn(
+    tx: Prisma.TransactionClient,
     columnId: string,
     beforeTaskId: string | null | undefined,
     excludeTaskId?: string,
   ): Promise<string> {
-    const tasks = await this.prisma.task.findMany({
+    const tasks = await tx.task.findMany({
       where: {
         columnId,
         deletedAt: null,
@@ -292,9 +309,10 @@ export class TasksService {
       throw new DomainError('NOT_FOUND', 404, 'Column not found');
     }
 
-    const position = await this.nextPosition(column.id);
     const completedAt = column.isDone ? new Date() : null;
-    const task = await this.prisma.$transaction(async (tx) => {
+    const { created: task, position } = await this.prisma.$transaction(async (tx) => {
+      await this.lockColumn(tx, column.id);
+      const position = await this.nextPositionIn(tx, column.id);
       const created = await tx.task.create({
         data: {
           projectId,
@@ -333,7 +351,7 @@ export class TasksService {
         data: [...watcherIds].map((watcherId) => ({ taskId: created.id, userId: watcherId })),
         skipDuplicates: true,
       });
-      return created;
+      return { created, position };
     });
 
     if (input.assigneeId && input.assigneeId !== userId) {
@@ -363,13 +381,21 @@ export class TasksService {
     const targetColumn = columns.find((column) => !column.isDone) ?? sourceColumn ?? columns[0];
     if (!targetColumn) throw new DomainError('NOT_FOUND', 404, 'No board columns configured');
 
-    const position = await this.nextPosition(targetColumn.id);
     const suffix = '（副本）';
     const title = `${source.title.slice(0, Math.max(1, 200 - suffix.length))}${suffix}`;
-    const assigneeId = access.permissions.includes('task:assign') ? source.assigneeId : null;
+    let assigneeId = access.permissions.includes('task:assign') ? source.assigneeId : null;
+    if (assigneeId) {
+      const stillMember = await this.prisma.projectMember.findUnique({
+        where: { projectId_userId: { projectId: source.projectId, userId: assigneeId } },
+        select: { userId: true },
+      });
+      if (!stillMember) assigneeId = null;
+    }
     const completedAt = targetColumn.isDone ? new Date() : null;
 
     const created = await this.prisma.$transaction(async (tx) => {
+      await this.lockColumn(tx, targetColumn.id);
+      const position = await this.nextPositionIn(tx, targetColumn.id);
       const copy = await tx.task.create({
         data: {
           projectId: source.projectId,
@@ -416,15 +442,15 @@ export class TasksService {
           copiedFromTaskId: source.id,
         },
       });
-      return copy;
+      return { copy, position };
     });
 
     await this.events.publish(source.projectId, 'task.created', {
-      taskId: created.id,
+      taskId: created.copy.id,
       columnId: targetColumn.id,
-      position,
+      position: created.position,
     });
-    return this.detail(created.id, userId);
+    return this.detail(created.copy.id, userId);
   }
 
   async setWatch(userId: string, taskId: string, watching: boolean) {
@@ -590,11 +616,6 @@ export class TasksService {
       }
     }
 
-    const position = await this.positionBefore(
-      target.id,
-      input.beforeTaskId,
-      task.columnId === target.id ? task.id : undefined,
-    );
     let completedAt = task.completedAt;
     let activityType: 'TASK_MOVED' | 'TASK_COMPLETED' | 'TASK_REOPENED' = 'TASK_MOVED';
     if (target.isDone && !completedAt) {
@@ -605,10 +626,17 @@ export class TasksService {
       activityType = 'TASK_REOPENED';
     }
 
-    await this.prisma.$transaction(async (tx) => {
+    const position = await this.prisma.$transaction(async (tx) => {
+      await this.lockColumn(tx, target.id);
+      const nextPosition = await this.positionBeforeIn(
+        tx,
+        target.id,
+        input.beforeTaskId,
+        task.columnId === target.id ? task.id : undefined,
+      );
       await tx.task.update({
         where: { id: task.id },
-        data: { columnId: target.id, position, completedAt },
+        data: { columnId: target.id, position: nextPosition, completedAt },
       });
       await this.activities.record(tx, {
         projectId: task.projectId,
@@ -621,9 +649,10 @@ export class TasksService {
           fromColumnId: task.columnId,
           toColumnId: target.id,
           fromPosition: task.position,
-          toPosition: position,
+          toPosition: nextPosition,
         },
       });
+      return nextPosition;
     });
     await this.events.publish(task.projectId, 'task.moved', {
       taskId: task.id,
@@ -653,7 +682,8 @@ export class TasksService {
   private async createNextRecurrence(task: TaskWithRelations, completedInDoneColumn: boolean) {
     if (!completedInDoneColumn) return;
     const columns = await this.columnsOf(task.projectId);
-    const targetColumn = columns.find((column) => !column.isDone) ?? columns[0];
+    const targetColumn = columns.find((column) => !column.isDone);
+    // 所有列都标记为完成时没有合法落点，跳过生成，避免产生「完成列中的未完成任务」。
     if (!targetColumn) return;
 
     const dueDate = nextRecurringDueDate(task.recurrence, task.dueDate);
@@ -680,6 +710,7 @@ export class TasksService {
       });
       if (claimed.count === 0) return null;
 
+      await this.lockColumn(tx, targetColumn.id);
       const existing = this.sortedByPosition(
         await tx.task.findMany({
           where: { columnId: targetColumn.id, deletedAt: null },
@@ -868,10 +899,10 @@ export class TasksService {
       }
     }
 
-    const position = await this.nextPosition(task.columnId);
-    const completedAt =
-      task.column.isDone && !task.completedAt ? new Date() : task.completedAt;
+    const completedAt = task.column.isDone ? (task.completedAt ?? new Date()) : null;
     await this.prisma.$transaction(async (tx) => {
+      await this.lockColumn(tx, task.columnId);
+      const position = await this.nextPositionIn(tx, task.columnId);
       const restored = await tx.task.updateMany({
         where: { id: task.id, deletedAt: { not: null } },
         data: { deletedAt: null, position, completedAt },
@@ -892,15 +923,18 @@ export class TasksService {
   }
 
   async createColumn(userId: string, projectId: string, input: CreateColumnInput) {
-    const columns = await this.columnsOf(projectId);
-    const position = positionBetween(columns.at(-1)?.position ?? null, null);
-    const column = await this.prisma.$transaction(async (tx) => {
+    const { column, position } = await this.prisma.$transaction(async (tx) => {
+      await this.lockProject(tx, projectId);
+      const columns = this.sortedByPosition(
+        await tx.boardColumn.findMany({ where: { projectId } }),
+      );
+      const nextPosition = positionBetween(columns.at(-1)?.position ?? null, null);
       const created = await tx.boardColumn.create({
         data: {
           projectId,
           name: input.name,
           isDone: input.isDone ?? false,
-          position,
+          position: nextPosition,
         },
       });
       await this.activities.record(tx, {
@@ -909,7 +943,7 @@ export class TasksService {
         type: 'COLUMN_CREATED',
         payload: { columnId: created.id, name: created.name },
       });
-      return created;
+      return { column: created, position: nextPosition };
     });
     await this.events.publish(projectId, 'column.created', {
       columnId: column.id,
@@ -974,25 +1008,29 @@ export class TasksService {
   async moveColumn(userId: string, columnId: string, input: MoveColumnInput) {
     const column = await this.prisma.boardColumn.findUnique({ where: { id: columnId } });
     if (!column) throw new DomainError('NOT_FOUND', 404, 'Column not found');
-    const columns = (await this.columnsOf(column.projectId)).filter((item) => item.id !== columnId);
-    if (input.beforeColumnId && !columns.some((item) => item.id === input.beforeColumnId)) {
-      throw new DomainError('TASK_NOT_IN_COLUMN', 422, 'Reference column not found');
-    }
-    const index = input.beforeColumnId
-      ? columns.findIndex((item) => item.id === input.beforeColumnId)
-      : columns.length;
-    const prev = index > 0 ? columns[index - 1]!.position : null;
-    const next = index < columns.length ? columns[index]!.position : null;
-    const position = positionBetween(prev, next);
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.boardColumn.update({ where: { id: columnId }, data: { position } });
+    const position = await this.prisma.$transaction(async (tx) => {
+      await this.lockProject(tx, column.projectId);
+      const columns = this.sortedByPosition(
+        await tx.boardColumn.findMany({ where: { projectId: column.projectId } }),
+      ).filter((item) => item.id !== columnId);
+      if (input.beforeColumnId && !columns.some((item) => item.id === input.beforeColumnId)) {
+        throw new DomainError('TASK_NOT_IN_COLUMN', 422, 'Reference column not found');
+      }
+      const index = input.beforeColumnId
+        ? columns.findIndex((item) => item.id === input.beforeColumnId)
+        : columns.length;
+      const prev = index > 0 ? columns[index - 1]!.position : null;
+      const next = index < columns.length ? columns[index]!.position : null;
+      const nextPosition = positionBetween(prev, next);
+      await tx.boardColumn.update({ where: { id: columnId }, data: { position: nextPosition } });
       await this.activities.record(tx, {
         projectId: column.projectId,
         actorId: userId,
         type: 'COLUMN_UPDATED',
         payload: { columnId, name: column.name, moved: true },
       });
+      return nextPosition;
     });
     await this.events.publish(column.projectId, 'column.moved', { columnId, position });
     const taskCount = await this.prisma.task.count({ where: { columnId, deletedAt: null } });
@@ -1048,42 +1086,55 @@ export class TasksService {
     }
 
     const movedEvents: Array<{ taskId: string; position: string }> = [];
-    await this.prisma.$transaction(async (tx) => {
-      if (target && tasks.length > 0) {
-        const existing = await this.sortedByPosition(
-          await tx.task.findMany({
-            where: { columnId: target.id, deletedAt: null },
-            select: { id: true, position: true },
-          }),
-        );
-        let prev = existing.at(-1)?.position ?? null;
-        for (const task of tasks) {
-          const position = positionBetween(prev, null);
-          prev = position;
-          const completedAt = target.isDone ? (task.completedAt ?? new Date()) : null;
-          await tx.task.update({
-            where: { id: task.id },
-            data: { columnId: target.id, position, completedAt },
-          });
-          movedEvents.push({ taskId: task.id, position });
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await this.lockColumn(tx, columnId);
+        if (target) await this.lockColumn(tx, target.id);
+        if (target && tasks.length > 0) {
+          const existing = await this.sortedByPosition(
+            await tx.task.findMany({
+              where: { columnId: target.id, deletedAt: null },
+              select: { id: true, position: true },
+            }),
+          );
+          let prev = existing.at(-1)?.position ?? null;
+          for (const task of tasks) {
+            const position = positionBetween(prev, null);
+            prev = position;
+            const completedAt = target.isDone ? (task.completedAt ?? new Date()) : null;
+            await tx.task.update({
+              where: { id: task.id },
+              data: { columnId: target.id, position, completedAt },
+            });
+            movedEvents.push({ taskId: task.id, position });
+          }
         }
-      }
-      // 已删除任务仍引用原列；迁移到目标列（没有可见任务时选另一列），避免外键阻塞删除。
-      const trashColumn = target ?? columns.find((item) => item.id !== columnId);
-      if (trashColumn) {
-        await tx.task.updateMany({
-          where: { columnId, deletedAt: { not: null } },
-          data: { columnId: trashColumn.id },
+        // 已删除任务仍引用原列；迁移到目标列（没有可见任务时选另一列），避免外键阻塞删除。
+        const trashColumn = target ?? columns.find((item) => item.id !== columnId);
+        if (trashColumn) {
+          await tx.task.updateMany({
+            where: { columnId, deletedAt: { not: null } },
+            data: { columnId: trashColumn.id },
+          });
+        }
+        await tx.boardColumn.delete({ where: { id: columnId } });
+        await this.activities.record(tx, {
+          projectId: column.projectId,
+          actorId: userId,
+          type: 'COLUMN_DELETED',
+          payload: { columnId, name: column.name, movedTasksTo: target?.id ?? null },
         });
-      }
-      await tx.boardColumn.delete({ where: { id: columnId } });
-      await this.activities.record(tx, {
-        projectId: column.projectId,
-        actorId: userId,
-        type: 'COLUMN_DELETED',
-        payload: { columnId, name: column.name, movedTasksTo: target?.id ?? null },
       });
-    });
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2003') {
+        throw new DomainError(
+          'COLUMN_BUSY',
+          409,
+          '列中出现了新任务，请刷新后重试删除',
+        );
+      }
+      throw error;
+    }
 
     await this.events.publish(column.projectId, 'column.deleted', { columnId });
     if (target) {

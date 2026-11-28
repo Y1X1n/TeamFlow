@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import type { CreateTaskDependencyInput } from '@teamflow/shared/schemas';
 import { DomainError } from '../../common/domain-error';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -58,8 +59,13 @@ export class TaskDependenciesService {
     };
   }
 
-  private async assertAcyclic(projectId: string, taskId: string, blockedByTaskId: string) {
-    const rows = await this.prisma.taskDependency.findMany({
+  private async assertAcyclic(
+    tx: Prisma.TransactionClient,
+    projectId: string,
+    taskId: string,
+    blockedByTaskId: string,
+  ) {
+    const rows = await tx.taskDependency.findMany({
       where: {
         task: { projectId, deletedAt: null },
         blockedBy: { deletedAt: null },
@@ -106,31 +112,37 @@ export class TaskDependenciesService {
       throw new DomainError('DEPENDENCY_CROSS_PROJECT', 422, '只能依赖同一项目内的任务');
     }
 
-    const existing = await this.prisma.taskDependency.findUnique({
-      where: { taskId_blockedById: { taskId, blockedById: blockedByTaskId } },
-      select: { id: true },
-    });
-    if (existing) return this.summarize(taskId);
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`project:${task.projectId}`}))`;
+        const existing = await tx.taskDependency.findUnique({
+          where: { taskId_blockedById: { taskId, blockedById: blockedByTaskId } },
+          select: { id: true },
+        });
+        if (existing) return;
 
-    await this.assertAcyclic(task.projectId, taskId, blockedByTaskId);
+        await this.assertAcyclic(tx, task.projectId, taskId, blockedByTaskId);
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.taskDependency.create({
-        data: { taskId, blockedById: blockedByTaskId, createdById: userId },
-      });
-      await this.activities.record(tx, {
-        projectId: task.projectId,
-        actorId: userId,
-        taskId,
-        type: 'TASK_DEPENDENCY_ADDED',
-        payload: {
+        await tx.taskDependency.create({
+          data: { taskId, blockedById: blockedByTaskId, createdById: userId },
+        });
+        await this.activities.record(tx, {
+          projectId: task.projectId,
+          actorId: userId,
           taskId,
-          title: task.title,
-          blockedByTaskId,
-          blockedByTitle: blocker.title,
-        },
+          type: 'TASK_DEPENDENCY_ADDED',
+          payload: {
+            taskId,
+            title: task.title,
+            blockedByTaskId,
+            blockedByTitle: blocker.title,
+          },
+        });
       });
-    });
+    } catch (error) {
+      // 并发重复添加由唯一键兜底，保持幂等语义。
+      if ((error as { code?: string }).code !== 'P2002') throw error;
+    }
 
     await this.events.publish(task.projectId, 'task.updated', { taskId });
     return this.summarize(taskId);

@@ -112,6 +112,11 @@ export class CommentsService {
   }
 
   async list(taskId: string, viewerId: string, cursor: string | undefined, limit: number) {
+    const task = await this.prisma.task.findFirst({
+      where: { id: taskId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!task) throw new DomainError('NOT_FOUND', 404, 'Task not found');
     const cursorId = decodeCursor(cursor);
     const rows = await this.prisma.taskComment.findMany({
       where: { taskId },
