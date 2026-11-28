@@ -170,7 +170,9 @@ export function BoardPage({ projectId }: { projectId: string }) {
   const [groupBy, setGroupBy] = useState<BoardGroupBy>('none');
   const [viewMode, setViewMode] = useState<BoardViewMode>('board');
   const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollRafRef = useRef<number | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -331,30 +333,50 @@ export function BoardPage({ projectId }: { projectId: string }) {
     );
   }, [columns]);
 
+  useEffect(() => {
+    setMounted(true);
+    return () => {
+      if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
+    };
+  }, []);
+
   const handleBoardScroll = () => {
-    const container = boardScrollRef.current;
-    if (!container) return;
-    const center = container.getBoundingClientRect().left + container.clientWidth / 2;
-    let nearest: string | null = null;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-    for (const column of columns) {
-      const element = document.getElementById(`board-col-${column.id}`);
-      if (!element) continue;
-      const rect = element.getBoundingClientRect();
-      const distance = Math.abs(rect.left + rect.width / 2 - center);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearest = column.id;
+    if (!window.matchMedia('(max-width: 767px)').matches) return;
+    if (scrollRafRef.current !== null) return;
+    scrollRafRef.current = window.requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const container = boardScrollRef.current;
+      if (!container) return;
+      const center = container.getBoundingClientRect().left + container.clientWidth / 2;
+      let nearest: string | null = null;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      for (const column of columns) {
+        const element = document.getElementById(`board-col-${column.id}`);
+        if (!element) continue;
+        const rect = element.getBoundingClientRect();
+        const distance = Math.abs(rect.left + rect.width / 2 - center);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearest = column.id;
+        }
       }
-    }
-    if (nearest) setActiveColumnId(nearest);
+      if (nearest) {
+        setActiveColumnId((previous) => (previous === nearest ? previous : nearest));
+      }
+    });
   };
 
   const scrollToColumn = (columnId: string) => {
     setActiveColumnId(columnId);
-    document
-      .getElementById(`board-col-${columnId}`)
-      ?.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+    const container = boardScrollRef.current;
+    const element = document.getElementById(`board-col-${columnId}`);
+    if (!container || !element) return;
+    const containerRect = container.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    container.scrollTo({
+      left: container.scrollLeft + elementRect.left - containerRect.left - 16,
+      behavior: 'smooth',
+    });
   };
 
   const visibleSelectedIds = useMemo(
@@ -890,7 +912,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
       ) : null}
 
       {viewMode === 'board' && columns.length > 0 ? (
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 scrollbar-none md:hidden">
+        <div className="sticky top-12 z-20 -mx-4 mt-3 flex gap-2 overflow-x-auto bg-background/95 px-4 py-2 backdrop-blur scrollbar-none md:hidden">
           {columns.map((column, index) => {
             const active = column.id === activeColumnId;
             return (
@@ -1003,7 +1025,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
         </DndContext>
       )}
 
-      {canCreate && typeof document !== 'undefined'
+      {mounted && canCreate
         ? createPortal(
             <Button
               type="button"

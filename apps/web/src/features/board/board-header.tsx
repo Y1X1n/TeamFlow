@@ -106,7 +106,7 @@ export function BoardHeader({
         </div>
 
         {canCreateTask ? (
-          <Button onClick={onCreateTask} className="hidden sm:inline-flex">
+          <Button onClick={onCreateTask} className="hidden md:inline-flex">
             <Plus className="h-4 w-4" aria-hidden="true" />
             新建任务
           </Button>
