@@ -31,7 +31,7 @@ export class MetricsController {
     const authorization = request.headers.authorization;
     if (token) {
       if (authorization !== `Bearer ${token}`) throw new NotFoundException();
-    } else if (!isPrivateAddress(request.ip)) {
+    } else if (!isPrivateAddress(request.socket.remoteAddress)) {
       throw new NotFoundException();
     }
     return this.metrics.metrics();

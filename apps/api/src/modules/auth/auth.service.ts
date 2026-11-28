@@ -14,12 +14,8 @@ export interface SessionResult {
   expiresIn: number;
 }
 
-let dummyHashPromise: Promise<string> | null = null;
-
-function dummyPasswordHash(): Promise<string> {
-  dummyHashPromise ??= hashPassword('teamflow-nonexistent-account');
-  return dummyHashPromise;
-}
+const DUMMY_PASSWORD_HASH =
+  'scrypt$32768$8$3$KVG8qSnZHvRJ47DOhuf31A$A0gDFNpfpZSPhevHvvVf44rUhUcFdJsEszT7K_asWsErnnusQVD7FJT2Xrl797MNSrem5jj3hsnymGcZcKqS7A';
 
 @Injectable()
 export class AuthService {
@@ -62,7 +58,7 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email: input.email } });
     if (!user) {
       // 账号不存在时也执行一次等价的 scrypt 校验，降低按响应时间枚举邮箱的风险。
-      await verifyPassword(input.password, await dummyPasswordHash());
+      await verifyPassword(input.password, DUMMY_PASSWORD_HASH);
       throw new DomainError('INVALID_CREDENTIALS', 401, 'Invalid email or password');
     }
     const valid = await verifyPassword(input.password, user.passwordHash);

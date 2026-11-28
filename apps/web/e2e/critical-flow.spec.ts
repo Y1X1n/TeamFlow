@@ -1028,6 +1028,8 @@ test.describe('critical flows', () => {
     await authenticate(page);
     await page.goto('/invite/not-a-valid-token');
     await expect(page.getByText(/邀请|失败|不存在|无效/).first()).toBeVisible({ timeout: 15_000 });
+    await page.goto('/invite#not-a-valid-token');
+    await expect(page.getByText(/邀请|失败|不存在|无效/).first()).toBeVisible({ timeout: 15_000 });
   });
 
   test('project calendar renders and exports ICS', async ({ page }) => {

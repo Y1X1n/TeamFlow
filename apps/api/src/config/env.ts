@@ -81,7 +81,11 @@ export const envSchema = z.object({
           'must be replaced with a unique random value in production (repo defaults are public)',
       });
     }
-    if (value.NODE_ENV === 'production' && value.AI_BASE_URL?.startsWith('http://')) {
+    if (
+      value.NODE_ENV === 'production' &&
+      value.AI_BASE_URL &&
+      new URL(value.AI_BASE_URL).protocol !== 'https:'
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['AI_BASE_URL'],
