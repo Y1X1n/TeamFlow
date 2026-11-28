@@ -63,6 +63,22 @@ export function useNotificationStream(enabled = true): void {
     let authRetries = 0;
     let requestId = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let taskRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function clearTaskRefreshTimer() {
+      if (taskRefreshTimer !== null) {
+        clearTimeout(taskRefreshTimer);
+        taskRefreshTimer = null;
+      }
+    }
+
+    function scheduleTaskRefresh() {
+      if (taskRefreshTimer !== null) return;
+      taskRefreshTimer = setTimeout(() => {
+        taskRefreshTimer = null;
+        void queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+      }, 500);
+    }
 
     function clearReconnectTimer() {
       if (reconnectTimer !== null) {
@@ -96,7 +112,17 @@ export function useNotificationStream(enabled = true): void {
 
       void queryClient.invalidateQueries({ queryKey: queryKeys.unreadCount });
       void queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      void queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+      if (
+        [
+          'TASK_ASSIGNED',
+          'TASK_UPDATED',
+          'TASK_COMMENTED',
+          'TASK_DUE_SOON',
+          'TASK_OVERDUE',
+        ].includes(notification.type)
+      ) {
+        scheduleTaskRefresh();
+      }
       if (pathnameRef.current === '/inbox') {
         void queryClient.refetchQueries({ queryKey: ['notifications'], type: 'active' });
       }
@@ -212,6 +238,7 @@ export function useNotificationStream(enabled = true): void {
       disposed = true;
       requestId += 1;
       clearReconnectTimer();
+      clearTaskRefreshTimer();
       controller.abort();
     };
   }, [enabled, queryClient]);

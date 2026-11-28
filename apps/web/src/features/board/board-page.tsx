@@ -592,7 +592,6 @@ export function BoardPage({ projectId }: { projectId: string }) {
       ),
     onSuccess: (result, taskIds) => {
       invalidateProjectSurfaces(queryClient, projectId);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.trash(projectId) });
       for (const taskId of taskIds) {
         queryClient.removeQueries({ queryKey: queryKeys.task(taskId) });
       }
@@ -919,7 +918,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
       ) : null}
 
       {viewMode === 'board' && columns.length > 0 ? (
-        <div className="sticky top-12 z-20 -mx-4 mt-3 flex gap-2 overflow-x-auto bg-background/95 px-4 py-2 backdrop-blur scrollbar-none md:hidden">
+        <div className="sticky top-[calc(3rem+env(safe-area-inset-top))] z-20 -mx-4 mt-3 flex gap-2 overflow-x-auto bg-background/95 px-4 py-2 backdrop-blur scrollbar-none md:hidden">
           {columns.map((column, index) => {
             const active = column.id === activeColumnId;
             return (
@@ -1044,7 +1043,7 @@ export function BoardPage({ projectId }: { projectId: string }) {
               size="icon"
               aria-label="新建任务"
               onClick={() => setCreateOpen(true)}
-              className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-4 z-20 h-14 w-14 rounded-full shadow-lg shadow-primary/25 md:hidden"
+              className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-[calc(1rem+env(safe-area-inset-right))] z-20 h-14 w-14 rounded-full shadow-lg shadow-primary/25 md:hidden"
             >
               <Plus className="h-6 w-6" aria-hidden="true" />
             </Button>,

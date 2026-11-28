@@ -267,7 +267,7 @@ export function AppShell({ children, fluid }: { children: ReactNode; fluid?: boo
       {/* 移动端底部 Tab；桌面端由顶部导航承载。 */}
       <nav
         aria-label="移动端主导航"
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-background/95 pb-safe shadow-[0_-4px_20px_rgba(15,23,42,0.06)] backdrop-blur-md md:hidden"
+        className="px-safe fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-background/95 pb-safe shadow-[0_-4px_20px_rgba(15,23,42,0.06)] backdrop-blur-md md:hidden"
       >
         <div className="flex items-stretch justify-around px-2">
           {APP_NAV.map((item) => {

@@ -153,6 +153,7 @@ export function BoardListView({
                     aria-label={
                       selectionMode ? `选择任务：${task.title}` : `打开任务：${task.title}`
                     }
+                    disabled={selectionDisabled}
                     onClick={() =>
                       selectionMode
                         ? onToggleSelected(task.id, !selectedIds.has(task.id))
@@ -341,6 +342,7 @@ export function BoardListView({
                       aria-label={
                         selectionMode ? `选择任务：${task.title}` : `打开任务：${task.title}`
                       }
+                      disabled={selectionDisabled}
                       onClick={() =>
                         selectionMode
                           ? onToggleSelected(task.id, !selectedIds.has(task.id))
