@@ -38,9 +38,7 @@ export function shanghaiDateKey(date: Date): string {
 }
 
 export function parseWeekStart(value: string): Date {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) throw new Error('Invalid date');
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  const date = parseDateKey(value);
   if (date.getUTCDay() !== 1) throw new Error('weekStart must be a Monday');
   return date;
 }

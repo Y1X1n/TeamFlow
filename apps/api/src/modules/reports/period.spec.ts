@@ -1,4 +1,10 @@
-import { dayBounds, normalizeWeekStart, parseDateKey, periodBounds } from './week';
+import {
+  dayBounds,
+  normalizeWeekStart,
+  parseDateKey,
+  parseWeekStart,
+  periodBounds,
+} from './week';
 
 describe('parseDateKey', () => {
   it('returns UTC midnight for a valid calendar date', () => {
@@ -53,6 +59,11 @@ describe('normalizeWeekStart', () => {
   it('rejects invalid date keys', () => {
     expect(() => normalizeWeekStart('not-a-date')).toThrow('Invalid date');
     expect(() => normalizeWeekStart('2026-02-30')).toThrow('Invalid date');
+  });
+
+  it('rejects nonexistent or non-Monday week starts', () => {
+    expect(() => parseWeekStart('2026-02-30')).toThrow('Invalid date');
+    expect(() => parseWeekStart('2026-11-25')).toThrow('weekStart must be a Monday');
   });
 });
 

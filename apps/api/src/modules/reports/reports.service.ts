@@ -380,7 +380,7 @@ export class ReportsService {
     const commentWhere: Prisma.TaskCommentWhereInput = {
       deletedAt: null,
       createdAt: range,
-      task: { projectId: project.id },
+      task: { projectId: project.id, deletedAt: null },
     };
     if (assigneeId) commentWhere.authorId = assigneeId;
     const activityWhere: Prisma.ActivityWhereInput = {
@@ -572,7 +572,9 @@ export class ReportsService {
       {
         period: 'weekly',
         scope: 'team',
-        referenceNow: live ? now : bounds.endExclusive,
+        referenceNow: live
+          ? now
+          : new Date(Math.min(now.getTime(), bounds.endExclusive.getTime())),
         generatedAt: now,
       },
     );
@@ -770,21 +772,15 @@ export class ReportsService {
     const json = data as unknown as Prisma.InputJsonValue;
 
     const report = await this.prisma.$transaction(async (tx) => {
-      const existing = await tx.weeklyReport.findUnique({
+      const saved = await tx.weeklyReport.upsert({
         where: { projectId_weekStart: { projectId, weekStart } },
+        update: {
+          weekEnd: endDate,
+          data: json,
+          ...(createdById ? { createdById } : {}),
+        },
+        create: { projectId, weekStart, weekEnd: endDate, data: json, createdById },
       });
-      const saved = existing
-        ? await tx.weeklyReport.update({
-            where: { id: existing.id },
-            data: {
-              weekEnd: endDate,
-              data: json,
-              createdById: createdById ?? existing.createdById,
-            },
-          })
-        : await tx.weeklyReport.create({
-            data: { projectId, weekStart, weekEnd: endDate, data: json, createdById },
-          });
       await this.activities.record(tx, {
         projectId,
         actorId: createdById,

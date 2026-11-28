@@ -228,6 +228,7 @@ model Task {
   blockingDependencies  TaskDependency[] @relation("TaskBlocker")
 
   @@index([projectId, deletedAt, columnId, position], map: "tasks_board_idx")
+  @@index([columnId, deletedAt, position], map: "tasks_column_position_idx")
   @@index([assigneeId, deletedAt, completedAt], map: "tasks_assignee_idx")
   @@index([dueDate, completedAt, deletedAt], map: "tasks_due_idx")
   @@map("tasks")

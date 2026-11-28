@@ -170,6 +170,11 @@ export class AttachmentsService {
   }
 
   async list(taskId: string) {
+    const task = await this.prisma.task.findFirst({
+      where: { id: taskId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!task) throw new DomainError('NOT_FOUND', 404, 'Task not found');
     const attachments = await this.prisma.attachment.findMany({
       where: { taskId },
       include: { uploadedBy: { select: { id: true, name: true } } },
@@ -181,9 +186,11 @@ export class AttachmentsService {
   async download(attachmentId: string, userId: string) {
     const attachment = await this.prisma.attachment.findUnique({
       where: { id: attachmentId },
-      include: { task: { select: { projectId: true } } },
+      include: { task: { select: { projectId: true, deletedAt: true } } },
     });
-    if (!attachment) throw new DomainError('NOT_FOUND', 404, 'Attachment not found');
+    if (!attachment || attachment.task.deletedAt) {
+      throw new DomainError('NOT_FOUND', 404, 'Attachment not found');
+    }
     await this.access.getContext(userId, attachment.task.projectId);
     return this.storage.getDownloadUrl(
       attachment.objectKey,
@@ -195,9 +202,11 @@ export class AttachmentsService {
   async remove(userId: string, attachmentId: string): Promise<void> {
     const attachment = await this.prisma.attachment.findUnique({
       where: { id: attachmentId },
-      include: { task: { select: { projectId: true, id: true } } },
+      include: { task: { select: { projectId: true, id: true, deletedAt: true } } },
     });
-    if (!attachment) throw new DomainError('NOT_FOUND', 404, 'Attachment not found');
+    if (!attachment || attachment.task.deletedAt) {
+      throw new DomainError('NOT_FOUND', 404, 'Attachment not found');
+    }
     const access = await this.access.getContext(userId, attachment.task.projectId);
     if (access.archived) throw new DomainError('PROJECT_ARCHIVED', 409, 'Project is archived');
     if (attachment.uploadedById !== userId && !access.permissions.includes('attachment:delete')) {
